@@ -1,0 +1,41 @@
+// TWA (Trusted Web Activity) Build Configuration
+// This wraps the PWA as an Android app for Google Play Store
+
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    compileSdkVersion 34
+    defaultConfig {
+        applicationId "dev.toolboxpro.app"
+        minSdkVersion 19
+        targetSdkVersion 34
+        versionCode 1
+        versionName "1.0.0"
+
+        // TWA Configuration
+        manifestPlaceholders = [
+            hostName: "toolboxpro.dev",
+            defaultUrl: "https://toolboxpro.dev",
+            launcherName: "ToolBox Pro",
+            assetStatements: '[{ "relation": ["delegate_permission/common.handle_all_urls"], "target": { "namespace": "web", "site": "https://toolboxpro.dev" } }]'
+        ]
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}

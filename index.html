@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ToolBox Pro - 免费在线开发者工具箱，JSON格式化、二维码生成、密码生成、Base64编解码等20+实用工具">
+    <meta name="keywords" content="在线工具,开发者工具,JSON格式化,二维码生成器,密码生成器,Base64,工具箱">
+    <meta name="theme-color" content="#6C63FF">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>ToolBox Pro - 免费在线工具箱</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+    <link rel="apple-touch-icon" href="assets/icon-192.png">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <nav class="nav container">
+            <a href="/" class="logo">
+                <span class="logo-icon">&#9881;</span>
+                <span class="logo-text">ToolBox <span class="highlight">Pro</span></span>
+            </a>
+            <div class="nav-links">
+                <a href="#tools" class="nav-link">All Tools</a>
+                <a href="#categories" class="nav-link">Categories</a>
+                <button class="btn-premium" id="premiumBtn">PRO</button>
+            </div>
+            <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">&#9776;</button>
+        </nav>
+    </header>
+
+    <main>
+        <!-- Hero Section -->
+        <section class="hero">
+            <div class="container">
+                <h1>All-in-One Developer Toolbox</h1>
+                <p class="hero-subtitle">Free online tools for developers, designers, and everyone. Fast, private, works offline.</p>
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="Search tools... (e.g. JSON, QR Code, Password)" autocomplete="off">
+                </div>
+                <div class="hero-stats">
+                    <div class="stat"><strong id="toolCount">10</strong><span>Tools</span></div>
+                    <div class="stat"><strong>100%</strong><span>Free</span></div>
+                    <div class="stat"><strong>0</strong><span>Ads for PRO</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Ad Banner Zone -->
+        <div class="ad-zone container" id="adBannerTop">
+            <div class="ad-placeholder">Advertisement</div>
+        </div>
+
+        <!-- Tools Grid -->
+        <section class="tools-section" id="tools">
+            <div class="container">
+                <h2 class="section-title">Popular Tools</h2>
+                <div class="tools-grid" id="toolsGrid">
+                    <!-- Tools are injected by JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Categories -->
+        <section class="categories-section" id="categories">
+            <div class="container">
+                <h2 class="section-title">Categories</h2>
+                <div class="categories-grid">
+                    <div class="category-card" data-category="developer">
+                        <span class="category-icon">&#128187;</span>
+                        <h3>Developer</h3>
+                        <p>JSON, Base64, UUID, URL encoding</p>
+                    </div>
+                    <div class="category-card" data-category="security">
+                        <span class="category-icon">&#128274;</span>
+                        <h3>Security</h3>
+                        <p>Password generator, Hash tools</p>
+                    </div>
+                    <div class="category-card" data-category="text">
+                        <span class="category-icon">&#128221;</span>
+                        <h3>Text</h3>
+                        <p>Markdown, Diff, Word count</p>
+                    </div>
+                    <div class="category-card" data-category="media">
+                        <span class="category-icon">&#127912;</span>
+                        <h3>Design</h3>
+                        <p>Color palette, QR code, Image tools</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Premium Section -->
+        <section class="premium-section" id="premium">
+            <div class="container">
+                <h2 class="section-title">Upgrade to PRO</h2>
+                <div class="pricing-grid">
+                    <div class="pricing-card">
+                        <h3>Free</h3>
+                        <div class="price">$0</div>
+                        <ul>
+                            <li>All basic tools</li>
+                            <li>Limited daily uses</li>
+                            <li>Ads supported</li>
+                        </ul>
+                        <button class="btn btn-outline">Current Plan</button>
+                    </div>
+                    <div class="pricing-card featured">
+                        <div class="badge">Popular</div>
+                        <h3>PRO Monthly</h3>
+                        <div class="price">$2.99<span>/mo</span></div>
+                        <ul>
+                            <li>Unlimited tool usage</li>
+                            <li>No advertisements</li>
+                            <li>Batch processing</li>
+                            <li>API access</li>
+                        </ul>
+                        <button class="btn btn-primary" onclick="handleUpgrade('monthly')">Upgrade Now</button>
+                    </div>
+                    <div class="pricing-card">
+                        <h3>PRO Yearly</h3>
+                        <div class="price">$19.99<span>/yr</span></div>
+                        <ul>
+                            <li>Everything in Monthly</li>
+                            <li>Save 44%</li>
+                            <li>Priority support</li>
+                        </ul>
+                        <button class="btn btn-primary" onclick="handleUpgrade('yearly')">Upgrade Now</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tool Modal -->
+        <div class="modal-overlay" id="modalOverlay">
+            <div class="modal" id="toolModal">
+                <div class="modal-header">
+                    <h2 id="modalTitle">Tool</h2>
+                    <button class="modal-close" id="modalClose">&times;</button>
+                </div>
+                <div class="modal-body" id="modalBody">
+                    <!-- Tool content injected here -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div>
+                    <h4>ToolBox Pro</h4>
+                    <p>Free developer tools that work offline. Privacy-first, no data uploaded.</p>
+                </div>
+                <div>
+                    <h4>Links</h4>
+                    <a href="#tools">All Tools</a>
+                    <a href="#premium">Pricing</a>
+                    <a href="privacy.html">Privacy Policy</a>
+                    <a href="terms.html">Terms of Service</a>
+                </div>
+                <div>
+                    <h4>Contact</h4>
+                    <a href="mailto:support@toolboxpro.dev">support@toolboxpro.dev</a>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 ToolBox Pro. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Install PWA prompt -->
+    <div class="install-prompt" id="installPrompt" style="display:none">
+        <p>Install ToolBox Pro for offline access</p>
+        <button class="btn btn-primary btn-sm" id="installBtn">Install</button>
+        <button class="btn btn-outline btn-sm" id="dismissInstall">Later</button>
+    </div>
+
+    <script src="js/tools-registry.js"></script>
+    <script src="js/tools/json-formatter.js"></script>
+    <script src="js/tools/qr-generator.js"></script>
+    <script src="js/tools/base64-codec.js"></script>
+    <script src="js/tools/color-palette.js"></script>
+    <script src="js/tools/password-generator.js"></script>
+    <script src="js/tools/markdown-preview.js"></script>
+    <script src="js/tools/text-diff.js"></script>
+    <script src="js/tools/uuid-generator.js"></script>
+    <script src="js/tools/url-codec.js"></script>
+    <script src="js/tools/hash-generator.js"></script>
+    <script src="js/app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+    </script>
+</body>
+</html>

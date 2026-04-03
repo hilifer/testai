@@ -1,0 +1,56 @@
+{
+    "name": "ToolBox Pro - Online Developer Toolbox",
+    "short_name": "ToolBox Pro",
+    "description": "Free all-in-one developer tools. JSON formatter, QR generator, password generator, and 10+ more tools that work offline.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0F0E17",
+    "theme_color": "#6C63FF",
+    "orientation": "any",
+    "categories": ["utilities", "developer", "productivity"],
+    "icons": [
+        {
+            "src": "assets/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "assets/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "screenshots": [
+        {
+            "src": "assets/screenshot-wide.png",
+            "sizes": "1280x720",
+            "type": "image/png",
+            "form_factor": "wide"
+        },
+        {
+            "src": "assets/screenshot-narrow.png",
+            "sizes": "720x1280",
+            "type": "image/png",
+            "form_factor": "narrow"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "JSON Formatter",
+            "url": "/#json-formatter",
+            "icons": [{ "src": "assets/icon-192.png", "sizes": "192x192" }]
+        },
+        {
+            "name": "Password Generator",
+            "url": "/#password-generator",
+            "icons": [{ "src": "assets/icon-192.png", "sizes": "192x192" }]
+        },
+        {
+            "name": "QR Code Generator",
+            "url": "/#qr-generator",
+            "icons": [{ "src": "assets/icon-192.png", "sizes": "192x192" }]
+        }
+    ]
+}
