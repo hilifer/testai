@@ -93,7 +93,7 @@ pub async fn capture_credentials(provider_name: &str) -> Result<WebCredential, W
         .map_err(|e| WebBridgeError::Browser(format!("Failed to parse CDP targets: {e}")))?;
 
     // Get cookies via CDP
-    let cookies_url = format!("http://127.0.0.1:{CDP_PORT}/json/protocol");
+    let _cookies_url = format!("http://127.0.0.1:{CDP_PORT}/json/protocol");
 
     // Use the DevTools HTTP API to get cookies for the target domains
     // We'll use the /json/version endpoint and then send CDP commands
@@ -165,7 +165,7 @@ pub async fn capture_credentials(provider_name: &str) -> Result<WebCredential, W
 
 /// Extract cookies from a Chrome page via CDP WebSocket.
 async fn extract_cookies_via_cdp(
-    ws_url: &str,
+    _ws_url: &str,
     domains: &[&str],
 ) -> Result<(Vec<Cookie>, Option<String>), WebBridgeError> {
     // For simplicity, we use the HTTP-based CDP cookie extraction.
@@ -182,7 +182,7 @@ async fn extract_cookies_via_cdp(
 
 /// Extract cookies from Chrome's user data directory.
 /// This reads the Cookies SQLite database that Chrome maintains.
-fn extract_cookies_from_chrome_profile(domains: &[&str]) -> Result<Vec<Cookie>, WebBridgeError> {
+fn extract_cookies_from_chrome_profile(_domains: &[&str]) -> Result<Vec<Cookie>, WebBridgeError> {
     let cookie_db_path = dirs::home_dir()
         .map(|h| h.join(".claw").join("chrome-profile").join("Default").join("Cookies"))
         .ok_or_else(|| WebBridgeError::Browser("Cannot determine home directory".into()))?;

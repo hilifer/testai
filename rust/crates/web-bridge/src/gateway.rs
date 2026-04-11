@@ -7,14 +7,12 @@ use axum::response::sse::{Event, Sse};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
 
 use crate::credential_store::CredentialStore;
-use crate::error::WebBridgeError;
-use crate::providers::{ChatMessage, ChatRequest, ProviderRegistry, StreamDelta};
+use crate::providers::{ChatMessage, ChatRequest, ProviderRegistry};
 
 /// Shared state for the gateway.
 struct GatewayState {
@@ -62,7 +60,8 @@ async fn chat_completions(
     let model = body
         .get("model")
         .and_then(Value::as_str)
-        .unwrap_or("deepseek/deepseek-chat");
+        .unwrap_or("deepseek/deepseek-chat")
+        .to_string();
 
     let messages: Vec<ChatMessage> = body
         .get("messages")
@@ -91,21 +90,26 @@ async fn chat_completions(
         .map(|v| v as u32);
 
     // Find the provider
-    let Some((provider, actual_model)) = state.registry.find_by_model(model) else {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": {
-                    "message": format!("Unknown model: {model}. Use format: provider/model (e.g., deepseek/deepseek-chat)"),
-                    "type": "invalid_request_error",
-                }
-            })),
-        )
-            .into_response();
+    // Resolve provider and model - collect owned data to avoid lifetime issues
+    let (provider_name, actual_model) = {
+        let Some((provider, actual_model)) = state.registry.find_by_model(&model) else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": {
+                        "message": format!("Unknown model: {model}. Use format: provider/model (e.g., deepseek/deepseek-chat)"),
+                        "type": "invalid_request_error",
+                    }
+                })),
+            )
+                .into_response();
+        };
+        (provider.name().to_string(), actual_model.to_string())
     };
 
     let credentials = state.credentials.read().await;
-    let Some(credential) = credentials.get(provider.name()) else {
+    let Some(credential) = credentials.get(&provider_name) else {
+        let provider = state.registry.get(&provider_name).unwrap();
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({
@@ -113,7 +117,7 @@ async fn chat_completions(
                     "message": format!(
                         "No credentials for {}. Run `claw web-login {}` first.",
                         provider.display_name(),
-                        provider.name()
+                        provider_name
                     ),
                     "type": "authentication_error",
                 }
@@ -123,7 +127,7 @@ async fn chat_completions(
     };
 
     let chat_request = ChatRequest {
-        model: actual_model.to_string(),
+        model: actual_model,
         messages,
         stream,
         temperature,
@@ -131,6 +135,7 @@ async fn chat_completions(
     };
 
     let credential = credential.clone();
+    let provider = state.registry.get(&provider_name).unwrap();
 
     if stream {
         // Streaming response as SSE

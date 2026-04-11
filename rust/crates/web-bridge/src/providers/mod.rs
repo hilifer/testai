@@ -99,7 +99,7 @@ impl ProviderRegistry {
     }
 
     /// Find a provider by model ID (checks all providers).
-    pub fn find_by_model(&self, model: &str) -> Option<(&dyn WebProvider, &str)> {
+    pub fn find_by_model<'a>(&'a self, model: &'a str) -> Option<(&'a dyn WebProvider, &'a str)> {
         // model format: "web/deepseek-chat" or "deepseek-web/deepseek-chat"
         let stripped = model
             .strip_prefix("web/")
