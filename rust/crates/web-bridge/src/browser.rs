@@ -210,7 +210,7 @@ fn extract_cookies_from_chrome_profile(domains: &[&str]) -> Result<Vec<Cookie>, 
 }
 
 /// Manually set credentials for a provider.
-/// Used when CDP capture isn't available — user pastes cookies directly.
+/// Used when CDP capture isn't available - user pastes cookies directly.
 pub fn set_credentials_manual(
     provider_name: &str,
     cookies_str: &str,
@@ -257,4 +257,94 @@ pub fn set_credentials_manual(
     store.save()?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_credentials_manual_parses_cookies() {
+        let tmp = std::env::temp_dir().join("claw-test-browser");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("CLAW_CONFIG_HOME", tmp.to_str().unwrap());
+
+        set_credentials_manual("deepseek", "session=abc; token=xyz", None).unwrap();
+
+        let store = CredentialStore::load();
+        let cred = store.get("deepseek").unwrap();
+        assert_eq!(cred.cookies.len(), 2);
+        assert_eq!(cred.cookies[0].name, "session");
+        assert_eq!(cred.cookies[0].value, "abc");
+        assert_eq!(cred.cookies[1].name, "token");
+        assert_eq!(cred.cookies[1].value, "xyz");
+        assert!(cred.bearer_token.is_none());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::remove_var("CLAW_CONFIG_HOME");
+    }
+
+    #[test]
+    fn set_credentials_manual_with_bearer_token() {
+        let tmp = std::env::temp_dir().join("claw-test-browser-bearer");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("CLAW_CONFIG_HOME", tmp.to_str().unwrap());
+
+        set_credentials_manual("chatgpt", "sid=123", Some("my-bearer-token")).unwrap();
+
+        let store = CredentialStore::load();
+        let cred = store.get("chatgpt").unwrap();
+        assert_eq!(cred.cookies.len(), 1);
+        assert_eq!(cred.bearer_token, Some("my-bearer-token".into()));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::remove_var("CLAW_CONFIG_HOME");
+    }
+
+    #[test]
+    fn set_credentials_manual_unknown_provider_fails() {
+        let result = set_credentials_manual("nonexistent", "a=b", None);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("not found"),
+            "error should mention provider not found: {err}"
+        );
+    }
+
+    #[test]
+    fn set_credentials_manual_empty_cookies() {
+        let tmp = std::env::temp_dir().join("claw-test-browser-empty");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("CLAW_CONFIG_HOME", tmp.to_str().unwrap());
+
+        set_credentials_manual("deepseek", "", Some("token")).unwrap();
+
+        let store = CredentialStore::load();
+        let cred = store.get("deepseek").unwrap();
+        assert!(cred.cookies.is_empty());
+        assert_eq!(cred.bearer_token, Some("token".into()));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::remove_var("CLAW_CONFIG_HOME");
+    }
+
+    #[test]
+    fn set_credentials_manual_overwrites_existing() {
+        let tmp = std::env::temp_dir().join("claw-test-browser-overwrite");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("CLAW_CONFIG_HOME", tmp.to_str().unwrap());
+
+        set_credentials_manual("deepseek", "old=val", None).unwrap();
+        set_credentials_manual("deepseek", "new=val2", Some("tok")).unwrap();
+
+        let store = CredentialStore::load();
+        let cred = store.get("deepseek").unwrap();
+        assert_eq!(cred.cookies.len(), 1);
+        assert_eq!(cred.cookies[0].name, "new");
+        assert_eq!(cred.bearer_token, Some("tok".into()));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::remove_var("CLAW_CONFIG_HOME");
+    }
 }

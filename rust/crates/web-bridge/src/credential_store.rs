@@ -105,3 +105,158 @@ impl Cookie {
             .join("; ")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_cookie(name: &str, value: &str, domain: &str) -> Cookie {
+        Cookie {
+            name: name.into(),
+            value: value.into(),
+            domain: domain.into(),
+            path: Some("/".into()),
+            expires: None,
+            http_only: false,
+            secure: true,
+        }
+    }
+
+    fn sample_credential(provider: &str) -> WebCredential {
+        WebCredential {
+            provider: provider.into(),
+            cookies: vec![
+                sample_cookie("session", "abc123", "example.com"),
+                sample_cookie("token", "xyz789", "example.com"),
+            ],
+            bearer_token: Some("bearer-test-token".into()),
+            user_agent: Some("TestAgent/1.0".into()),
+            captured_at: 1700000000,
+        }
+    }
+
+    #[test]
+    fn cookie_header_value_single() {
+        let cookies = vec![sample_cookie("sid", "val1", "example.com")];
+        assert_eq!(Cookie::to_header_value(&cookies), "sid=val1");
+    }
+
+    #[test]
+    fn cookie_header_value_multiple() {
+        let cookies = vec![
+            sample_cookie("a", "1", "x.com"),
+            sample_cookie("b", "2", "x.com"),
+            sample_cookie("c", "3", "x.com"),
+        ];
+        assert_eq!(Cookie::to_header_value(&cookies), "a=1; b=2; c=3");
+    }
+
+    #[test]
+    fn cookie_header_value_empty() {
+        let cookies: Vec<Cookie> = vec![];
+        assert_eq!(Cookie::to_header_value(&cookies), "");
+    }
+
+    #[test]
+    fn credential_serialize_deserialize() {
+        let cred = sample_credential("deepseek");
+        let json = serde_json::to_string(&cred).unwrap();
+        let parsed: WebCredential = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.provider, "deepseek");
+        assert_eq!(parsed.cookies.len(), 2);
+        assert_eq!(parsed.cookies[0].name, "session");
+        assert_eq!(parsed.cookies[0].value, "abc123");
+        assert_eq!(parsed.bearer_token, Some("bearer-test-token".into()));
+        assert_eq!(parsed.user_agent, Some("TestAgent/1.0".into()));
+        assert_eq!(parsed.captured_at, 1700000000);
+    }
+
+    #[test]
+    fn credential_deserialize_missing_optional_fields() {
+        let json = r#"{
+            "provider": "test",
+            "cookies": [],
+            "captured_at": 0
+        }"#;
+        let cred: WebCredential = serde_json::from_str(json).unwrap();
+        assert_eq!(cred.provider, "test");
+        assert!(cred.bearer_token.is_none());
+        assert!(cred.user_agent.is_none());
+        assert!(cred.cookies.is_empty());
+    }
+
+    #[test]
+    fn store_set_and_get() {
+        let mut store = CredentialStore::default();
+        assert!(store.get("deepseek").is_none());
+
+        store.set("deepseek".into(), sample_credential("deepseek"));
+        assert!(store.get("deepseek").is_some());
+        assert_eq!(store.get("deepseek").unwrap().provider, "deepseek");
+    }
+
+    #[test]
+    fn store_overwrite() {
+        let mut store = CredentialStore::default();
+        let mut cred1 = sample_credential("deepseek");
+        cred1.captured_at = 100;
+        store.set("deepseek".into(), cred1);
+
+        let mut cred2 = sample_credential("deepseek");
+        cred2.captured_at = 200;
+        store.set("deepseek".into(), cred2);
+
+        assert_eq!(store.get("deepseek").unwrap().captured_at, 200);
+    }
+
+    #[test]
+    fn store_multiple_providers() {
+        let mut store = CredentialStore::default();
+        store.set("deepseek".into(), sample_credential("deepseek"));
+        store.set("chatgpt".into(), sample_credential("chatgpt"));
+        store.set("kimi".into(), sample_credential("kimi"));
+
+        assert_eq!(store.providers().len(), 3);
+        assert!(store.get("deepseek").is_some());
+        assert!(store.get("chatgpt").is_some());
+        assert!(store.get("kimi").is_some());
+        assert!(store.get("gemini").is_none());
+    }
+
+    #[test]
+    fn store_serialize_deserialize_roundtrip() {
+        let mut store = CredentialStore::default();
+        store.set("deepseek".into(), sample_credential("deepseek"));
+        store.set("chatgpt".into(), sample_credential("chatgpt"));
+
+        let json = serde_json::to_string_pretty(&store).unwrap();
+        let parsed: CredentialStore = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.providers().len(), 2);
+        assert_eq!(
+            parsed.get("deepseek").unwrap().cookies.len(),
+            store.get("deepseek").unwrap().cookies.len()
+        );
+    }
+
+    #[test]
+    fn store_save_and_load_to_temp_dir() {
+        // Use a temp dir to avoid polluting the real config
+        let tmp = std::env::temp_dir().join("claw-test-cred-store");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("CLAW_CONFIG_HOME", tmp.to_str().unwrap());
+
+        let mut store = CredentialStore::default();
+        store.set("deepseek".into(), sample_credential("deepseek"));
+        store.save().unwrap();
+
+        let loaded = CredentialStore::load();
+        assert!(loaded.get("deepseek").is_some());
+        assert_eq!(loaded.get("deepseek").unwrap().cookies.len(), 2);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::remove_var("CLAW_CONFIG_HOME");
+    }
+}

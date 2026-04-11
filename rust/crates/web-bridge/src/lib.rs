@@ -26,6 +26,7 @@ pub fn is_web_model(model: &str) -> bool {
 
 /// Auto-start the gateway if needed, and return the OpenAI-compatible base URL.
 /// This is called from the main CLI when a web model is detected.
+#[allow(clippy::missing_errors_doc)]
 pub async fn ensure_gateway_running() -> Result<String, WebBridgeError> {
     // Check if gateway is already running
     let health_url = format!("http://127.0.0.1:{DEFAULT_GATEWAY_PORT}/health");
@@ -43,4 +44,49 @@ pub async fn ensure_gateway_running() -> Result<String, WebBridgeError> {
     // Start the gateway
     let addr = start_gateway(DEFAULT_GATEWAY_PORT).await?;
     Ok(format!("http://{addr}/v1"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- is_web_model tests ---
+
+    #[test]
+    fn web_prefix_detected() {
+        assert!(is_web_model("web/deepseek-chat"));
+        assert!(is_web_model("web/gpt-4o"));
+        assert!(is_web_model("web/anything"));
+    }
+
+    #[test]
+    fn provider_prefix_detected() {
+        assert!(is_web_model("deepseek/deepseek-chat"));
+        assert!(is_web_model("chatgpt/gpt-4o"));
+        assert!(is_web_model("gemini/gemini-pro"));
+        assert!(is_web_model("kimi/kimi-chat"));
+        assert!(is_web_model("qwen-web/qwen-max"));
+    }
+
+    #[test]
+    fn web_suffix_detected() {
+        assert!(is_web_model("deepseek-web"));
+        assert!(is_web_model("chatgpt-web"));
+        assert!(is_web_model("anything-web"));
+    }
+
+    #[test]
+    fn non_web_models_not_detected() {
+        assert!(!is_web_model("claude-sonnet-4-6"));
+        assert!(!is_web_model("gpt-4"));
+        assert!(!is_web_model("grok-3"));
+        assert!(!is_web_model("qwen-plus")); // qwen- without "web" suffix
+        assert!(!is_web_model(""));
+        assert!(!is_web_model("openai/gpt-4"));
+    }
+
+    #[test]
+    fn default_gateway_port() {
+        assert_eq!(DEFAULT_GATEWAY_PORT, 18899);
+    }
 }

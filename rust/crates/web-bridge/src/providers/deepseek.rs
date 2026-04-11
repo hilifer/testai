@@ -1,5 +1,4 @@
 use serde_json::{json, Value};
-use tokio_stream::StreamExt;
 
 use crate::credential_store::{Cookie, WebCredential};
 use crate::error::WebBridgeError;
@@ -284,5 +283,230 @@ impl tokio_stream::Stream for SseDecoderStream {
                 Poll::Pending => return Poll::Pending,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio_stream::StreamExt;
+
+    // --- SSE line parsing tests (unit tests for parse_sse_line) ---
+
+    fn make_decoder() -> SseDecoderStream {
+        // Create a decoder with an empty stream (we'll test parse_sse_line directly)
+        let empty_stream = tokio_stream::empty::<Result<bytes::Bytes, reqwest::Error>>();
+        SseDecoderStream::new(empty_stream)
+    }
+
+    #[test]
+    fn parse_done_marker() {
+        let mut decoder = make_decoder();
+        let result = decoder.parse_sse_line("data: [DONE]");
+        assert!(result.is_some());
+        let delta = result.unwrap().unwrap();
+        assert!(delta.content.is_none());
+        assert_eq!(delta.finish_reason, Some("stop".into()));
+        assert!(decoder.done);
+    }
+
+    #[test]
+    fn parse_non_sse_line_returns_none() {
+        let mut decoder = make_decoder();
+        assert!(decoder.parse_sse_line("not an sse line").is_none());
+        assert!(decoder.parse_sse_line("").is_none());
+        assert!(decoder.parse_sse_line("event: message").is_none());
+    }
+
+    #[test]
+    fn parse_invalid_json_returns_none() {
+        let mut decoder = make_decoder();
+        assert!(decoder.parse_sse_line("data: {invalid json}").is_none());
+    }
+
+    #[test]
+    fn parse_incremental_delta() {
+        let mut decoder = make_decoder();
+        let line = r#"data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}"#;
+        let result = decoder.parse_sse_line(line);
+        assert!(result.is_some());
+        let delta = result.unwrap().unwrap();
+        assert_eq!(delta.content, Some("Hello".into()));
+        assert!(delta.finish_reason.is_none());
+    }
+
+    #[test]
+    fn parse_incremental_sequence() {
+        let mut decoder = make_decoder();
+
+        let line1 = r#"data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":null}]}"#;
+        let d1 = decoder.parse_sse_line(line1).unwrap().unwrap();
+        assert_eq!(d1.content, Some("Hi".into()));
+
+        let line2 = r#"data: {"choices":[{"delta":{"content":" there"},"finish_reason":null}]}"#;
+        let d2 = decoder.parse_sse_line(line2).unwrap().unwrap();
+        assert_eq!(d2.content, Some(" there".into()));
+    }
+
+    #[test]
+    fn parse_accumulated_content_extracts_delta() {
+        let mut decoder = make_decoder();
+
+        // Simulates accumulated mode: each chunk contains the full content so far
+        let line1 = r#"data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}"#;
+        let d1 = decoder.parse_sse_line(line1).unwrap().unwrap();
+        assert_eq!(d1.content, Some("Hello".into()));
+
+        // Next chunk has "Hello world" (accumulated) — should emit only " world"
+        let line2 =
+            r#"data: {"choices":[{"delta":{"content":"Hello world"},"finish_reason":null}]}"#;
+        let d2 = decoder.parse_sse_line(line2).unwrap().unwrap();
+        assert_eq!(d2.content, Some(" world".into()));
+
+        // Next: "Hello world!" — should emit only "!"
+        let line3 =
+            r#"data: {"choices":[{"delta":{"content":"Hello world!"},"finish_reason":null}]}"#;
+        let d3 = decoder.parse_sse_line(line3).unwrap().unwrap();
+        assert_eq!(d3.content, Some("!".into()));
+    }
+
+    #[test]
+    fn parse_role_field() {
+        let mut decoder = make_decoder();
+        let line =
+            r#"data: {"choices":[{"delta":{"role":"assistant","content":""},"finish_reason":null}]}"#;
+        let d = decoder.parse_sse_line(line).unwrap().unwrap();
+        assert_eq!(d.role, Some("assistant".into()));
+    }
+
+    #[test]
+    fn parse_finish_reason() {
+        let mut decoder = make_decoder();
+        let line =
+            r#"data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}]}"#;
+        let d = decoder.parse_sse_line(line).unwrap().unwrap();
+        assert_eq!(d.finish_reason, Some("stop".into()));
+    }
+
+    #[test]
+    fn parse_missing_choices_returns_none() {
+        let mut decoder = make_decoder();
+        let line = r#"data: {"id":"123","model":"deepseek"}"#;
+        assert!(decoder.parse_sse_line(line).is_none());
+    }
+
+    #[test]
+    fn parse_empty_choices_returns_none() {
+        let mut decoder = make_decoder();
+        let line = r#"data: {"choices":[]}"#;
+        assert!(decoder.parse_sse_line(line).is_none());
+    }
+
+    // --- Stream-level tests (async) ---
+
+    #[tokio::test]
+    async fn stream_from_bytes() {
+        let data = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n";
+        let bytes_stream =
+            tokio_stream::iter(vec![Ok::<_, reqwest::Error>(bytes::Bytes::from(data))]);
+
+        let mut decoder = SseDecoderStream::new(bytes_stream);
+
+        let first = decoder.next().await;
+        assert!(first.is_some());
+        assert_eq!(first.unwrap().unwrap().content, Some("Hi".into()));
+
+        let second = decoder.next().await;
+        assert!(second.is_some());
+        assert_eq!(second.unwrap().unwrap().finish_reason, Some("stop".into()));
+
+        // Stream should end
+        assert!(decoder.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn stream_split_across_chunks() {
+        // Data split across two byte chunks — the SSE line spans both
+        let chunk1 = r#"data: {"choices":[{"delta":{"#;
+        let chunk2 = r#""content":"split"},"finish_reason":null}]}
+data: [DONE]
+"#;
+        let bytes_stream = tokio_stream::iter(vec![
+            Ok::<_, reqwest::Error>(bytes::Bytes::from(chunk1)),
+            Ok(bytes::Bytes::from(chunk2)),
+        ]);
+
+        let mut decoder = SseDecoderStream::new(bytes_stream);
+
+        let first = decoder.next().await.unwrap().unwrap();
+        assert_eq!(first.content, Some("split".into()));
+
+        let second = decoder.next().await.unwrap().unwrap();
+        assert_eq!(second.finish_reason, Some("stop".into()));
+    }
+
+    #[tokio::test]
+    async fn stream_multiple_deltas() {
+        let data = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"A\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"B\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"C\"},\"finish_reason\":null}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let bytes_stream =
+            tokio_stream::iter(vec![Ok::<_, reqwest::Error>(bytes::Bytes::from(data))]);
+        let mut decoder = SseDecoderStream::new(bytes_stream);
+
+        let mut collected = String::new();
+        while let Some(Ok(delta)) = decoder.next().await {
+            if let Some(content) = delta.content {
+                collected.push_str(&content);
+            }
+        }
+        assert_eq!(collected, "ABC");
+    }
+
+    // --- Model mapping tests ---
+
+    #[test]
+    fn model_id_mapping() {
+        assert_eq!(map_model_id("deepseek-chat"), "deepseek_chat");
+        assert_eq!(map_model_id("deepseek-v3"), "deepseek_chat");
+        assert_eq!(map_model_id("deepseek-reasoner"), "deepseek_reasoner");
+        assert_eq!(map_model_id("deepseek-r1"), "deepseek_reasoner");
+        assert_eq!(map_model_id("deepseek-coder"), "deepseek_code");
+        assert_eq!(map_model_id("unknown-model"), "deepseek_chat");
+    }
+
+    // --- Provider metadata tests ---
+
+    #[test]
+    fn deepseek_provider_metadata() {
+        let provider = DeepSeekProvider::new();
+        assert_eq!(provider.name(), "deepseek");
+        assert_eq!(provider.display_name(), "DeepSeek");
+        assert_eq!(provider.login_url(), "https://chat.deepseek.com");
+        assert!(provider.credential_domains().contains(&"chat.deepseek.com"));
+        assert_eq!(provider.models().len(), 2);
+    }
+
+    #[test]
+    fn deepseek_build_request_body() {
+        let request = ChatRequest {
+            model: "deepseek-chat".into(),
+            messages: vec![super::super::ChatMessage {
+                role: "user".into(),
+                content: "Hello".into(),
+            }],
+            stream: true,
+            temperature: Some(0.5),
+            max_tokens: None,
+        };
+        let body = DeepSeekProvider::build_request_body(&request);
+        assert_eq!(body["model"], "deepseek_chat");
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["temperature"], 0.5);
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert_eq!(body["messages"][0]["content"], "Hello");
     }
 }
