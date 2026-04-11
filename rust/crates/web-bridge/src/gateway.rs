@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
 
 use crate::credential_store::CredentialStore;
+use crate::error::WebBridgeError;
 use crate::providers::{ChatMessage, ChatRequest, ProviderRegistry};
 
 /// Shared state for the gateway.
