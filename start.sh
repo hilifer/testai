@@ -403,13 +403,13 @@ echo ""
 # ============================================================
 info "Step 5: Starting web-bridge gateway..."
 
-GATEWAY_BIN="${PROJECT_DIR}/rust/target/release/web-bridge"
-CLI_BIN="${PROJECT_DIR}/rust/target/release/claw"
+GATEWAY_BIN="${SCRIPT_DIR}/../rust/target/release/web-bridge"
+CLI_BIN="${SCRIPT_DIR}/../rust/target/release/claw"
 
 # Build if not compiled yet
 if [ ! -f "$GATEWAY_BIN" ] || [ ! -f "$CLI_BIN" ]; then
     info "Compiling (first time only)..."
-    cd "${PROJECT_DIR}/rust"
+    cd "${SCRIPT_DIR}/../rust"
     cargo build --release -p web-bridge -p rusty-claude-cli 2>&1 | tail -3
     cd "$PROJECT_DIR"
 fi
