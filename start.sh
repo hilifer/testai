@@ -70,83 +70,101 @@ if $IS_WSL; then
     WIN_IP=$(ip route show default 2>/dev/null | awk '{print $3}')
     info "Windows IP: ${WIN_IP}"
 
-    # Kill old Chrome
-    powershell.exe -NoProfile -Command "Stop-Process -Name chrome -Force -ErrorAction SilentlyContinue" 2>/dev/null || true
-    sleep 2
-
-    # Firewall
-    info "Setting firewall..."
-    powershell.exe -NoProfile -Command "
-      Remove-NetFirewallRule -DisplayName 'Claw Chrome CDP' -ErrorAction SilentlyContinue
-      New-NetFirewallRule -DisplayName 'Claw Chrome CDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${CDP_PORT},${PROXY_PORT} -ErrorAction SilentlyContinue
-    " >/dev/null 2>&1 || warn "Firewall failed (need admin?)"
-
-    # Launch Chrome
-    info "Launching Chrome..."
-    powershell.exe -NoProfile -Command "
-      \$paths = @(
-        \"\$env:LOCALAPPDATA\\Google\\Chrome\\Application\\chrome.exe\",
-        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
-      )
-      \$chrome = \$paths | Where-Object { Test-Path \$_ } | Select-Object -First 1
-      if (-not \$chrome) { Write-Error 'Chrome not found'; exit 1 }
-      \$prof = \"\$env:USERPROFILE\\.claw\\chrome-profile\"
-      Start-Process \$chrome -ArgumentList '--remote-debugging-port=${CDP_PORT}','--remote-debugging-address=0.0.0.0',\"--user-data-dir=\$prof\",'--no-first-run','--no-default-browser-check'
-    " 2>/dev/null || { err "Chrome launch failed"; exit 1; }
-    sleep 4
-
-    # Verify Chrome running on Windows
-    info "Verifying Chrome on Windows..."
-    CHROME_OK=false
-    for i in 1 2 3 4 5; do
-        if powershell.exe -NoProfile -Command "(Invoke-WebRequest -Uri 'http://localhost:${CDP_PORT}/json/version' -UseBasicParsing -TimeoutSec 3).StatusCode" >/dev/null 2>&1; then
-            CHROME_OK=true
-            break
-        fi
-        sleep 2
-    done
-    if ! $CHROME_OK; then
-        err "Chrome CDP not responding on Windows"
-        exit 1
+    # Check if Chrome CDP + proxy are already running
+    ALREADY_RUNNING=false
+    if curl -sf --connect-timeout 2 "http://${WIN_IP}:${PROXY_PORT}/json/version" >/dev/null 2>&1; then
+        ALREADY_RUNNING=true
+        ok "Chrome + proxy already running, skipping restart"
     fi
-    ok "Chrome running on Windows"
 
-    # Start HTTP proxy on Windows (PowerShell HttpListener)
-    # This is the ONLY method proven to work for WSL -> Windows CDP
-    info "Starting HTTP proxy (${PROXY_PORT} -> ${CDP_PORT})..."
+    if ! $ALREADY_RUNNING; then
+        # Kill old Chrome
+        info "Killing old Chrome..."
+        powershell.exe -NoProfile -Command "Stop-Process -Name chrome -Force -ErrorAction SilentlyContinue" 2>/dev/null || true
+        sleep 2
 
-    # Kill old proxy
-    powershell.exe -NoProfile -Command "
-      Get-Process powershell -ErrorAction SilentlyContinue |
-        Where-Object { \$_.CommandLine -match 'CdpProxy' } |
-        Stop-Process -Force -ErrorAction SilentlyContinue
-    " 2>/dev/null || true
+        # Firewall
+        info "Setting firewall..."
+        powershell.exe -NoProfile -Command "
+          Remove-NetFirewallRule -DisplayName 'Claw Chrome CDP' -ErrorAction SilentlyContinue
+          New-NetFirewallRule -DisplayName 'Claw Chrome CDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${CDP_PORT},${PROXY_PORT} -ErrorAction SilentlyContinue
+        " >/dev/null 2>&1 || warn "Firewall failed (need admin?)"
 
-    # Start proxy in background
-    powershell.exe -NoProfile -Command "
-      Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-Command',\"
-        # CdpProxy
-        \\\$l = [System.Net.HttpListener]::new()
-        \\\$l.Prefixes.Add('http://+:${PROXY_PORT}/')
-        \\\$l.Start()
-        while (\\\$true) {
-          \\\$ctx = \\\$l.GetContext()
-          \\\$path = \\\$ctx.Request.RawUrl
-          try {
-            \\\$r = Invoke-WebRequest -Uri ('http://localhost:${CDP_PORT}' + \\\$path) -UseBasicParsing -TimeoutSec 10
-            \\\$ctx.Response.StatusCode = \\\$r.StatusCode
-            \\\$ctx.Response.ContentType = \\\$r.Headers['Content-Type']
-            \\\$b = [System.Text.Encoding]::UTF8.GetBytes(\\\$r.Content)
-            \\\$ctx.Response.OutputStream.Write(\\\$b, 0, \\\$b.Length)
-          } catch {
-            \\\$ctx.Response.StatusCode = 502
-          }
-          \\\$ctx.Response.Close()
-        }
-      \"
-    " 2>/dev/null || true
-    sleep 3
+        # Launch Chrome
+        info "Launching Chrome..."
+        powershell.exe -NoProfile -Command "
+          \$paths = @(
+            \"\$env:LOCALAPPDATA\\Google\\Chrome\\Application\\chrome.exe\",
+            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
+          )
+          \$chrome = \$paths | Where-Object { Test-Path \$_ } | Select-Object -First 1
+          if (-not \$chrome) { Write-Error 'Chrome not found'; exit 1 }
+          \$prof = \"\$env:USERPROFILE\\.claw\\chrome-profile\"
+          Start-Process \$chrome -ArgumentList '--remote-debugging-port=${CDP_PORT}','--remote-debugging-address=0.0.0.0',\"--user-data-dir=\$prof\",'--no-first-run','--no-default-browser-check'
+        " 2>/dev/null || { err "Chrome launch failed"; exit 1; }
+        sleep 4
+
+        # Verify Chrome running on Windows
+        info "Verifying Chrome on Windows..."
+        CHROME_OK=false
+        for i in 1 2 3 4 5; do
+            if powershell.exe -NoProfile -Command "(Invoke-WebRequest -Uri 'http://localhost:${CDP_PORT}/json/version' -UseBasicParsing -TimeoutSec 3).StatusCode" >/dev/null 2>&1; then
+                CHROME_OK=true
+                break
+            fi
+            sleep 2
+        done
+        if ! $CHROME_OK; then
+            err "Chrome CDP not responding on Windows"
+            exit 1
+        fi
+        ok "Chrome running on Windows"
+
+        # Start HTTP proxy on Windows (PowerShell HttpListener)
+        info "Starting HTTP proxy (${PROXY_PORT} -> ${CDP_PORT})..."
+
+        # Kill old proxy
+        powershell.exe -NoProfile -Command "
+          Get-Process powershell -ErrorAction SilentlyContinue |
+            Where-Object { \$_.CommandLine -match 'CdpProxy' } |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+        " 2>/dev/null || true
+
+        # Start proxy in background
+        powershell.exe -NoProfile -Command "
+          Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-Command',\"
+            # CdpProxy
+            \\\$l = [System.Net.HttpListener]::new()
+            \\\$l.Prefixes.Add('http://+:${PROXY_PORT}/')
+            \\\$l.Start()
+            while (\\\$true) {
+              \\\$ctx = \\\$l.GetContext()
+              \\\$path = \\\$ctx.Request.RawUrl
+              try {
+                \\\$r = Invoke-WebRequest -Uri ('http://localhost:${CDP_PORT}' + \\\$path) -UseBasicParsing -TimeoutSec 10
+                \\\$ctx.Response.StatusCode = \\\$r.StatusCode
+                \\\$ctx.Response.ContentType = \\\$r.Headers['Content-Type']
+                \\\$b = [System.Text.Encoding]::UTF8.GetBytes(\\\$r.Content)
+                \\\$ctx.Response.OutputStream.Write(\\\$b, 0, \\\$b.Length)
+              } catch {
+                \\\$ctx.Response.StatusCode = 502
+              }
+              \\\$ctx.Response.Close()
+            }
+          \"
+        " 2>/dev/null || true
+
+        # Wait for proxy to be ready
+        info "Waiting for proxy to start..."
+        for i in 1 2 3 4 5 6 7 8; do
+            if curl -sf --connect-timeout 2 "http://${WIN_IP}:${PROXY_PORT}/json/version" >/dev/null 2>&1; then
+                ok "HTTP proxy ready"
+                break
+            fi
+            sleep 2
+        done
+    fi
 
 else
     # Linux Desktop
