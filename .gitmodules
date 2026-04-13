@@ -1,0 +1,3 @@
+[submodule "openclaw-zero-token"]
+	path = openclaw-zero-token
+	url = https://github.com/linuxhsj/openclaw-zero-token.git
