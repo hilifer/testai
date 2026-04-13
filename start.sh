@@ -357,37 +357,50 @@ STATE_DIR="${OPENCLAW_DIR}/.openclaw-upstream-state"
 OPENCLAW_CONFIG="${STATE_DIR}/openclaw.json"
 mkdir -p "$STATE_DIR"
 
-# Convert captured cookies to openclaw config
+# Ensure openclaw.json exists (copy from example if needed)
+if [ ! -f "$OPENCLAW_CONFIG" ] && [ -f "${OPENCLAW_DIR}/.openclaw-state.example/openclaw.json" ]; then
+    cp "${OPENCLAW_DIR}/.openclaw-state.example/openclaw.json" "$OPENCLAW_CONFIG"
+fi
+
+# Convert captured cookies to auth-profiles.json (NOT openclaw.json)
+# openclaw-zero-token stores web credentials in auth-profiles.json
+# with type=token and the cookie/bearer data JSON-serialized in the token field
 if [ -f "$CRED_FILE" ]; then
+    AGENT_DIR="${HOME}/.openclaw/agents/default/agent"
+    mkdir -p "$AGENT_DIR"
+    AUTH_PROFILES="${AGENT_DIR}/auth-profiles.json"
+
     python3 -c "
-import json,os
-claw=json.load(open('${CRED_FILE}'))
-creds=claw.get('credentials',{})
-config={'auth':{'profiles':{}},'models':{'providers':{}},'gateway':{'port':${GATEWAY_PORT},'auth':{'mode':'none'}}}
+import json, os
 
-# Load existing config if present
-if os.path.exists('${OPENCLAW_CONFIG}'):
-    with open('${OPENCLAW_CONFIG}') as f:
-        existing=json.load(f)
-        config.update({k:v for k,v in existing.items() if k not in ('auth',)})
-        if 'auth' in existing:
-            config['auth']['profiles'].update(existing['auth'].get('profiles',{}))
+claw = json.load(open('${CRED_FILE}'))
+creds = claw.get('credentials', {})
 
-for provider,data in creds.items():
-    cookies=data.get('cookies',[])
-    cookie_str='; '.join(f\"{c['name']}={c['value']}\" for c in cookies)
-    key=f'{provider}-web:default'
-    config['auth']['profiles'][key]={
-        'provider':f'{provider}-web',
-        'mode':'cookie',
-        'cookies':cookie_str,
-        'bearerToken':data.get('bearer_token','') or '',
-        'userAgent':data.get('user_agent','') or ''
+# Load existing auth-profiles or create new
+profiles_path = '${AUTH_PROFILES}'
+store = {'version': 1, 'profiles': {}}
+if os.path.exists(profiles_path):
+    with open(profiles_path) as f:
+        store = json.load(f)
+
+for provider, data in creds.items():
+    cookies = data.get('cookies', [])
+    cookie_str = '; '.join(f\"{c['name']}={c['value']}\" for c in cookies)
+    bearer = data.get('bearer_token', '') or ''
+    ua = data.get('user_agent', '') or ''
+
+    profile_id = f'{provider}-web:default'
+    # Format matches what onboard-web-auth.ts produces
+    token_data = json.dumps({'cookie': cookie_str, 'bearer': bearer, 'userAgent': ua})
+    store['profiles'][profile_id] = {
+        'type': 'token',
+        'provider': f'{provider}-web',
+        'token': token_data
     }
 
-with open('${OPENCLAW_CONFIG}','w') as f:
-    json.dump(config,f,indent=2)
-print(f'Configured {len(creds)} provider(s)')
+with open(profiles_path, 'w') as f:
+    json.dump(store, f, indent=2)
+print(f'Injected {len(creds)} provider(s) into auth-profiles.json')
 " 2>/dev/null || warn "Credential injection failed"
 fi
 
@@ -399,15 +412,22 @@ else
     bash ./server.sh start 2>&1 | tail -5 || true
     cd "${HERE}"
 
-    # Wait
+    # Wait up to 90 seconds for gateway (first start can be slow)
     GATEWAY_OK=false
-    for i in 1 2 3 4 5 6 7 8 9 10; do
+    info "Waiting for gateway (may take up to 90s on first start)..."
+    for i in $(seq 1 30); do
         if curl -sf --connect-timeout 2 "http://localhost:${GATEWAY_PORT}/v1/models" >/dev/null 2>&1; then
             GATEWAY_OK=true; break
         fi
-        sleep 2
+        sleep 3
     done
-    $GATEWAY_OK && ok "Gateway running on :${GATEWAY_PORT}" || { err "Gateway failed"; exit 1; }
+    if $GATEWAY_OK; then
+        ok "Gateway running on :${GATEWAY_PORT}"
+    else
+        warn "Gateway health check failed, but it may still be starting."
+        warn "Check log: tail -f /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log"
+        warn "Continuing anyway..."
+    fi
 fi
 
 # ============================================================
