@@ -391,11 +391,51 @@ NUM=$(echo "$COOKIES_RAW" | python3 -c "import json,sys;print(len(json.load(sys.
 
 echo ""
 echo -e "${GREEN}============================================================${NC}"
-echo -e "${GREEN} DONE!${NC}"
+echo -e "${GREEN} Credentials saved!${NC}"
 echo -e "${GREEN}============================================================${NC}"
 echo "  Provider: ${PROVIDER} (${DOMAIN})"
 echo "  Cookies:  ${NUM} captured"
 echo "  Saved:    ${CRED_FILE}"
 echo ""
-echo "  Use: cd rust && ./target/release/claw --model ${PROVIDER}/deepseek-chat"
+
+# ============================================================
+# Step 5: Start web-bridge gateway + CLI
+# ============================================================
+info "Step 5: Starting web-bridge gateway..."
+
+GATEWAY_BIN="${PROJECT_DIR}/rust/target/release/web-bridge"
+CLI_BIN="${PROJECT_DIR}/rust/target/release/claw"
+
+# Build if not compiled yet
+if [ ! -f "$GATEWAY_BIN" ] || [ ! -f "$CLI_BIN" ]; then
+    info "Compiling (first time only)..."
+    cd "${PROJECT_DIR}/rust"
+    cargo build --release -p web-bridge -p rusty-claude-cli 2>&1 | tail -3
+    cd "$PROJECT_DIR"
+fi
+
+# Kill old gateway
+kill $(lsof -t -i :18899 2>/dev/null) 2>/dev/null || true
+sleep 1
+
+# Start gateway in background
+"$GATEWAY_BIN" &
+GATEWAY_PID=$!
+sleep 2
+
+# Verify gateway
+if curl -sf --connect-timeout 2 "http://localhost:18899/health" >/dev/null 2>&1; then
+    ok "Gateway running on localhost:18899 (PID: ${GATEWAY_PID})"
+else
+    err "Gateway failed to start"
+    exit 1
+fi
+
+# Start CLI
 echo ""
+info "Launching claw CLI..."
+echo ""
+"$CLI_BIN" --model "${PROVIDER}/deepseek-chat"
+
+# Cleanup on exit
+kill $GATEWAY_PID 2>/dev/null || true
