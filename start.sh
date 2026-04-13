@@ -362,6 +362,28 @@ if [ ! -f "$OPENCLAW_CONFIG" ] && [ -f "${OPENCLAW_DIR}/.openclaw-state.example/
     cp "${OPENCLAW_DIR}/.openclaw-state.example/openclaw.json" "$OPENCLAW_CONFIG"
 fi
 
+# Enable OpenAI-compatible /v1/chat/completions endpoint (disabled by default)
+# and set gateway auth to none so claw CLI can connect
+if [ -f "$OPENCLAW_CONFIG" ]; then
+    python3 -c "
+import json
+with open('${OPENCLAW_CONFIG}') as f:
+    config = json.load(f)
+# Enable /v1/chat/completions
+config.setdefault('gateway', {})
+config['gateway'].setdefault('http', {})
+config['gateway']['http'].setdefault('endpoints', {})
+config['gateway']['http']['endpoints']['chatCompletions'] = {'enabled': True}
+# Disable gateway auth so CLI can connect with any token
+config['gateway'].setdefault('auth', {})
+config['gateway']['auth']['mode'] = 'none'
+config['gateway']['port'] = ${GATEWAY_PORT}
+with open('${OPENCLAW_CONFIG}', 'w') as f:
+    json.dump(config, f, indent=2)
+print('Gateway config: chatCompletions enabled, auth=none')
+" 2>/dev/null || warn "Config patch failed"
+fi
+
 # Convert captured cookies to auth-profiles.json (NOT openclaw.json)
 # openclaw-zero-token stores web credentials in auth-profiles.json
 # with type=token and the cookie/bearer data JSON-serialized in the token field
