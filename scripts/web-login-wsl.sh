@@ -9,8 +9,11 @@
 
 set -euo pipefail
 
-# 获取 Windows 宿主机 IP
-WIN_HOST=$(grep -m1 nameserver /etc/resolv.conf 2>/dev/null | awk '{print $2}')
+# 获取 Windows 宿主机 IP（优先用网关，resolv.conf 可能被代理软件改掉）
+WIN_HOST=$(ip route show default 2>/dev/null | awk '{print $3}')
+if [ -z "$WIN_HOST" ]; then
+    WIN_HOST=$(grep -m1 nameserver /etc/resolv.conf 2>/dev/null | awk '{print $2}')
+fi
 CDP_PORT=18892
 
 if [ -z "$WIN_HOST" ]; then

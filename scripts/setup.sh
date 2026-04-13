@@ -30,8 +30,11 @@ detect_environment() {
 
     if grep -qi microsoft /proc/version 2>/dev/null; then
         IS_WSL=true
-        # 获取 Windows 宿主机 IP (WSL2 通过 resolv.conf 获取)
-        WIN_HOST_IP=$(grep -m1 nameserver /etc/resolv.conf 2>/dev/null | awk '{print $2}' || true)
+        # 获取 Windows 宿主机 IP（优先用网关，resolv.conf 可能被代理软件改掉）
+        WIN_HOST_IP=$(ip route show default 2>/dev/null | awk '{print $3}')
+        if [ -z "$WIN_HOST_IP" ]; then
+            WIN_HOST_IP=$(grep -m1 nameserver /etc/resolv.conf 2>/dev/null | awk '{print $2}' || true)
+        fi
         ok "检测到 WSL 环境"
         info "Windows 宿主机 IP: ${WIN_HOST_IP:-未知}"
     else
@@ -244,8 +247,11 @@ BAT
 
 set -euo pipefail
 
-# 获取 Windows 宿主机 IP
-WIN_HOST=$(grep -m1 nameserver /etc/resolv.conf 2>/dev/null | awk '{print $2}')
+# 获取 Windows 宿主机 IP（优先用网关）
+WIN_HOST=$(ip route show default 2>/dev/null | awk '{print $3}')
+if [ -z "$WIN_HOST" ]; then
+    WIN_HOST=$(grep -m1 nameserver /etc/resolv.conf 2>/dev/null | awk '{print $2}')
+fi
 CDP_PORT=18892
 
 if [ -z "$WIN_HOST" ]; then
