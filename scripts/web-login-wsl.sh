@@ -65,30 +65,43 @@ fi
 
 # --- 自动捕获模式: 连接 Windows Chrome CDP ---
 
-echo "[INFO] 连接 Windows Chrome (${WIN_HOST}:${CDP_PORT})..."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-if ! curl -sf --connect-timeout 3 "http://${WIN_HOST}:${CDP_PORT}/json/version" >/dev/null 2>&1; then
-    echo ""
-    echo "[ERROR] 无法连接到 Windows Chrome 调试端口"
-    echo ""
-    echo "请按以下步骤操作:"
-    echo ""
-    echo "  1. 在 Windows 上双击: scripts\\web-chrome-wsl.bat"
-    echo ""
-    echo "  2. 确保 Windows 防火墙放行端口 ${CDP_PORT}:"
-    echo "     (PowerShell 管理员运行)"
-    echo "     netsh advfirewall firewall add rule name=\"Chrome CDP\" dir=in action=allow protocol=TCP localport=${CDP_PORT}"
-    echo ""
-    echo "  3. 在打开的 Chrome 中登录 AI 网站"
-    echo ""
-    echo "  4. 重新运行: $0 $PROVIDER"
-    echo ""
-    echo "或者手动输入 cookies:"
-    echo "  $0 $PROVIDER --cookies \"your_cookies_here\""
-    exit 1
+# Try direct connection first, then fallback through bridge
+CHROME_URL=""
+echo "[INFO] 连接 Windows Chrome CDP..."
+
+if curl -sf --connect-timeout 2 "http://${WIN_HOST}:${CDP_PORT}/json/version" >/dev/null 2>&1; then
+    CHROME_URL="http://${WIN_HOST}:${CDP_PORT}"
+    echo "[OK] 直连 ${WIN_HOST}:${CDP_PORT}"
+elif curl -sf --connect-timeout 2 "http://localhost:${CDP_PORT}/json/version" >/dev/null 2>&1; then
+    CHROME_URL="http://localhost:${CDP_PORT}"
+    echo "[OK] 连接 localhost:${CDP_PORT} (via bridge/portproxy)"
+else
+    # Auto-start bridge
+    echo "[INFO] 直连失败，启动 socat bridge..."
+    if [ -f "$SCRIPT_DIR/wsl-bridge.sh" ]; then
+        bash "$SCRIPT_DIR/wsl-bridge.sh" start
+    fi
+    sleep 1
+    if curl -sf --connect-timeout 2 "http://localhost:${CDP_PORT}/json/version" >/dev/null 2>&1; then
+        CHROME_URL="http://localhost:${CDP_PORT}"
+        echo "[OK] Bridge 连接成功"
+    else
+        echo ""
+        echo "[ERROR] 无法连接到 Windows Chrome"
+        echo ""
+        echo "请确保:"
+        echo "  1. Windows 上 Chrome 以调试模式运行 (scripts\\web-chrome-wsl.bat)"
+        echo "  2. Windows 运行过: netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=${CDP_PORT} connectaddress=127.0.0.1 connectport=${CDP_PORT}"
+        echo ""
+        echo "或手动输入 cookies:"
+        echo "  $0 $PROVIDER --cookies \"your_cookies\""
+        exit 1
+    fi
 fi
 
-echo "[OK] Chrome 已连接"
+echo "[OK] Chrome CDP: ${CHROME_URL}"
 
 # 映射 provider 到域名
 case "$PROVIDER" in
@@ -105,12 +118,16 @@ CRED_FILE="$CONFIG_DIR/web-credentials.json"
 mkdir -p "$CONFIG_DIR"
 
 # 获取 User-Agent
-USER_AGENT=$(curl -sf "http://${WIN_HOST}:${CDP_PORT}/json/version" | python3 -c "import json,sys; print(json.load(sys.stdin).get('User-Agent',''))" 2>/dev/null || echo "")
+USER_AGENT=$(curl -sf "${CHROME_URL}/json/version" | python3 -c "import json,sys; print(json.load(sys.stdin).get('User-Agent',''))" 2>/dev/null || echo "")
 
 # 获取页面列表
-TARGETS=$(curl -sf "http://${WIN_HOST}:${CDP_PORT}/json")
+TARGETS=$(curl -sf "${CHROME_URL}/json")
 
-# 查找匹配的页面，并替换 WebSocket URL 中的 localhost 为 Windows IP
+# Extract the host:port we should use for WebSocket connections
+# If connected via bridge (localhost), keep localhost; if direct, use WIN_HOST
+CDP_CONNECT_HOST=$(echo "$CHROME_URL" | sed 's|http://||' | cut -d/ -f1)
+
+# 查找匹配的页面，替换 WebSocket URL 中的 host
 PAGE_WS=$(echo "$TARGETS" | python3 -c "
 import json, sys
 targets = json.load(sys.stdin)
@@ -118,7 +135,12 @@ for t in targets:
     url = t.get('url', '')
     if '${DOMAIN}' in url:
         ws = t.get('webSocketDebuggerUrl', '')
-        ws = ws.replace('localhost', '${WIN_HOST}').replace('127.0.0.1', '${WIN_HOST}')
+        # Replace whatever host Chrome reports with our reachable host
+        ws = ws.replace('localhost', '${CDP_CONNECT_HOST}').replace('127.0.0.1', '${CDP_CONNECT_HOST}')
+        # If CDP_CONNECT_HOST already has port, avoid double port
+        if '${CDP_CONNECT_HOST}' not in ws:
+            import re
+            ws = re.sub(r'ws://[^/]+', 'ws://${CDP_CONNECT_HOST}', ws)
         print(ws)
         break
 " 2>/dev/null || echo "")
