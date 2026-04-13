@@ -122,48 +122,45 @@ if $IS_WSL; then
         ok "Chrome running on Windows"
 
         # Start HTTP proxy on Windows (PowerShell HttpListener)
+        # Run directly in background (no Start-Process nesting)
         info "Starting HTTP proxy (${PROXY_PORT} -> ${CDP_PORT})..."
 
-        # Kill old proxy
         powershell.exe -NoProfile -Command "
-          Get-Process powershell -ErrorAction SilentlyContinue |
-            Where-Object { \$_.CommandLine -match 'CdpProxy' } |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-        " 2>/dev/null || true
-
-        # Start proxy in background
-        powershell.exe -NoProfile -Command "
-          Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-Command',\"
-            # CdpProxy
-            \\\$l = [System.Net.HttpListener]::new()
-            \\\$l.Prefixes.Add('http://+:${PROXY_PORT}/')
-            \\\$l.Start()
-            while (\\\$true) {
-              \\\$ctx = \\\$l.GetContext()
-              \\\$path = \\\$ctx.Request.RawUrl
-              try {
-                \\\$r = Invoke-WebRequest -Uri ('http://localhost:${CDP_PORT}' + \\\$path) -UseBasicParsing -TimeoutSec 10
-                \\\$ctx.Response.StatusCode = \\\$r.StatusCode
-                \\\$ctx.Response.ContentType = \\\$r.Headers['Content-Type']
-                \\\$b = [System.Text.Encoding]::UTF8.GetBytes(\\\$r.Content)
-                \\\$ctx.Response.OutputStream.Write(\\\$b, 0, \\\$b.Length)
-              } catch {
-                \\\$ctx.Response.StatusCode = 502
-              }
-              \\\$ctx.Response.Close()
+          \$l = [System.Net.HttpListener]::new()
+          \$l.Prefixes.Add('http://+:${PROXY_PORT}/')
+          \$l.Start()
+          while (\$true) {
+            \$ctx = \$l.GetContext()
+            \$path = \$ctx.Request.RawUrl
+            try {
+              \$r = Invoke-WebRequest -Uri ('http://localhost:${CDP_PORT}' + \$path) -UseBasicParsing -TimeoutSec 10
+              \$ctx.Response.StatusCode = \$r.StatusCode
+              \$ctx.Response.ContentType = \$r.Headers['Content-Type']
+              \$b = [System.Text.Encoding]::UTF8.GetBytes(\$r.Content)
+              \$ctx.Response.OutputStream.Write(\$b, 0, \$b.Length)
+            } catch {
+              \$ctx.Response.StatusCode = 502
             }
-          \"
-        " 2>/dev/null || true
+            \$ctx.Response.Close()
+          }
+        " >/dev/null 2>&1 &
+        PROXY_PID=$!
 
         # Wait for proxy to be ready
         info "Waiting for proxy to start..."
-        for i in 1 2 3 4 5 6 7 8; do
+        PROXY_OK=false
+        for i in 1 2 3 4 5 6 7 8 9 10; do
             if curl -sf --connect-timeout 2 "http://${WIN_IP}:${PROXY_PORT}/json/version" >/dev/null 2>&1; then
                 ok "HTTP proxy ready"
+                PROXY_OK=true
                 break
             fi
             sleep 2
         done
+        if ! $PROXY_OK; then
+            err "HTTP proxy failed to start"
+            exit 1
+        fi
     fi
 
 else
