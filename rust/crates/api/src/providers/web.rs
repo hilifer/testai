@@ -27,16 +27,3 @@ pub fn create_web_client() -> Result<OpenAiCompatClient, ApiError> {
     }
     OpenAiCompatClient::from_env(web_bridge_config())
 }
-
-/// Ensure the web-bridge gateway is running. Called before sending requests.
-pub async fn ensure_gateway() -> Result<(), ApiError> {
-    match web_bridge::ensure_gateway_running().await {
-        Ok(url) => {
-            tracing::info!("Web-bridge gateway available at {url}");
-            Ok(())
-        }
-        Err(e) => Err(ApiError::Internal(format!(
-            "Failed to start web-bridge gateway: {e}"
-        ))),
-    }
-}
