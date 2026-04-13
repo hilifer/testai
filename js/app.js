@@ -62,6 +62,12 @@
         if (tool.id === 'markdown-preview') {
             setTimeout(() => MarkdownPreview.render(), 50);
         }
+        if (tool.id === 'api-token-manager') {
+            setTimeout(() => {
+                ApiTokenTool._renderStats();
+                ApiTokenTool._renderScopes();
+            }, 50);
+        }
 
         // Track usage for free tier limits
         trackUsage(tool.id);

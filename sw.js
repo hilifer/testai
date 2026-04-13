@@ -1,4 +1,4 @@
-const CACHE_NAME = 'toolbox-pro-v1';
+const CACHE_NAME = 'toolbox-pro-v2';
 const ASSETS = [
     '/',
     '/index.html',
@@ -14,6 +14,8 @@ const ASSETS = [
     '/js/tools/uuid-generator.js',
     '/js/tools/url-codec.js',
     '/js/tools/hash-generator.js',
+    '/js/token-manager.js',
+    '/js/tools/api-token-tool.js',
     '/js/app.js',
     '/manifest.json'
 ];
