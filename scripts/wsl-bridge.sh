@@ -102,6 +102,14 @@ start_bridge() {
     ensure_socat
     stop_bridge_quiet
 
+    # Kill anything occupying the port
+    local old_pids=$(lsof -t -i ":${CDP_PORT}" 2>/dev/null || true)
+    if [ -n "$old_pids" ]; then
+        echo "Killing old processes on port ${CDP_PORT}..."
+        echo "$old_pids" | xargs kill -9 2>/dev/null || true
+        sleep 1
+    fi
+
     echo "Starting socat bridge: localhost:${CDP_PORT} -> ${win_ip}:${CDP_PORT}"
 
     socat TCP-LISTEN:${CDP_PORT},fork,reuseaddr TCP:${win_ip}:${CDP_PORT} &
