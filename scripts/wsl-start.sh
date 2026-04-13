@@ -44,42 +44,32 @@ ok "Windows IP: ${WIN_IP}"
 # ============================================================
 info "Step 2/5: Starting Chrome on Windows with CDP..."
 
-# Find Chrome path on Windows
-CHROME_WIN_PATH=""
-for p in \
-    "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe" \
-    "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe" \
-; do
-    if [ -f "$p" ]; then
-        CHROME_WIN_PATH="$p"
-        break
-    fi
-done
-
-# Also check via cmd.exe
-if [ -z "$CHROME_WIN_PATH" ]; then
-    CHROME_WIN_PATH=$(cmd.exe /C "where chrome.exe" 2>/dev/null | tr -d '\r' || true)
-fi
-
-if [ -z "$CHROME_WIN_PATH" ]; then
-    # Fallback: try common Windows paths via cmd
-    CHROME_WIN_PATH="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
-fi
-
 # Kill old Chrome
 info "  Killing old Chrome..."
-cmd.exe /C "taskkill /F /IM chrome.exe" >/dev/null 2>&1 || true
+powershell.exe -NoProfile -Command "Stop-Process -Name chrome -Force -ErrorAction SilentlyContinue" 2>/dev/null || true
 sleep 2
 
 # Setup firewall (ignore errors if not admin)
 info "  Setting firewall rule..."
-cmd.exe /C "netsh advfirewall firewall delete rule name=\"Claw Chrome CDP\"" >/dev/null 2>&1 || true
-cmd.exe /C "netsh advfirewall firewall add rule name=\"Claw Chrome CDP\" dir=in action=allow protocol=TCP localport=${CDP_PORT}" >/dev/null 2>&1 || warn "Firewall rule failed (need admin?)"
+powershell.exe -NoProfile -Command "
+  Remove-NetFirewallRule -DisplayName 'Claw Chrome CDP' -ErrorAction SilentlyContinue
+  New-NetFirewallRule -DisplayName 'Claw Chrome CDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${CDP_PORT} -ErrorAction SilentlyContinue
+" >/dev/null 2>&1 || warn "Firewall rule failed (need admin?)"
 
-# Launch Chrome with debug port via cmd.exe
-PROFILE_WIN="%USERPROFILE%\\.claw\\chrome-profile"
+# Launch Chrome with debug port
+PROFILE_WIN='$env:USERPROFILE\.claw\chrome-profile'
 info "  Launching Chrome..."
-cmd.exe /C "start \"\" \"${CHROME_WIN_PATH}\" --remote-debugging-port=${CDP_PORT} --remote-debugging-address=0.0.0.0 --user-data-dir=\"${PROFILE_WIN}\" --no-first-run --no-default-browser-check" >/dev/null 2>&1 || true
+powershell.exe -NoProfile -Command "
+  \$chromePaths = @(
+    \"\$env:LOCALAPPDATA\\Google\\Chrome\\Application\\chrome.exe\",
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
+  )
+  \$chrome = \$chromePaths | Where-Object { Test-Path \$_ } | Select-Object -First 1
+  if (-not \$chrome) { Write-Error 'Chrome not found'; exit 1 }
+  \$profileDir = \"\$env:USERPROFILE\\.claw\\chrome-profile\"
+  Start-Process \$chrome -ArgumentList '--remote-debugging-port=${CDP_PORT}','--remote-debugging-address=0.0.0.0',\"--user-data-dir=\$profileDir\",'--no-first-run','--no-default-browser-check'
+" 2>/dev/null || { err "Failed to launch Chrome"; exit 1; }
 
 # Wait for Chrome to start
 sleep 3
@@ -88,7 +78,7 @@ sleep 3
 CHROME_OK=false
 for i in 1 2 3; do
     # Check via Windows localhost
-    if cmd.exe /C "curl -sf http://localhost:${CDP_PORT}/json/version" >/dev/null 2>&1; then
+    if powershell.exe -NoProfile -Command "(Invoke-WebRequest -Uri 'http://localhost:${CDP_PORT}/json/version' -UseBasicParsing -TimeoutSec 3).StatusCode" >/dev/null 2>&1; then
         CHROME_OK=true
         break
     fi
@@ -108,12 +98,28 @@ fi
 info "Step 3/5: Starting TCP relay for WSL..."
 
 # Kill old relay
-cmd.exe /C "taskkill /F /FI \"WINDOWTITLE eq Claw-CDP-Relay\"" >/dev/null 2>&1 || true
+powershell.exe -NoProfile -Command "Get-Process -Name powershell -ErrorAction SilentlyContinue | Where-Object { \$_.MainWindowTitle -match 'Claw-CDP' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>/dev/null || true
 sleep 1
 
 # Start PowerShell relay in background on Windows
-# This listens on 0.0.0.0:CDP_PORT and forwards to 127.0.0.1:CDP_PORT
-cmd.exe /C "start \"Claw-CDP-Relay\" /MIN powershell -NoProfile -ExecutionPolicy Bypass -Command \"while(\$true){try{\$l=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any,${CDP_PORT});\$l.Start();while(\$true){\$c=\$l.AcceptTcpClient();\$t=[System.Net.Sockets.TcpClient]::new('127.0.0.1',${CDP_PORT});\$cs=\$c.GetStream();\$ts=\$t.GetStream();[System.Threading.Tasks.Task]::Run([Action]{\$cs.CopyTo(\$ts)}).ContinueWith([Action[System.Threading.Tasks.Task]]{\$t.Close()});[System.Threading.Tasks.Task]::Run([Action]{\$ts.CopyTo(\$cs)}).ContinueWith([Action[System.Threading.Tasks.Task]]{\$c.Close()})}}catch{Start-Sleep 2}}\"" >/dev/null 2>&1 || true
+# Listens on 0.0.0.0:CDP_PORT and forwards to 127.0.0.1:CDP_PORT
+powershell.exe -NoProfile -Command "
+  Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-Command','
+    while(\$true){
+      try{
+        \$l=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any,${CDP_PORT});
+        \$l.Start();
+        while(\$true){
+          \$c=\$l.AcceptTcpClient();
+          \$t=[System.Net.Sockets.TcpClient]::new(\"127.0.0.1\",${CDP_PORT});
+          \$cs=\$c.GetStream(); \$ts=\$t.GetStream();
+          [System.Threading.Tasks.Task]::Run([Action]{\$cs.CopyTo(\$ts)}).ContinueWith([Action[System.Threading.Tasks.Task]]{\$t.Close()});
+          [System.Threading.Tasks.Task]::Run([Action]{\$ts.CopyTo(\$cs)}).ContinueWith([Action[System.Threading.Tasks.Task]]{\$c.Close()})
+        }
+      }catch{ Start-Sleep 2 }
+    }
+  '
+" 2>/dev/null || true
 
 sleep 2
 
@@ -194,7 +200,7 @@ if [ "$HAS_PAGE" != "yes" ]; then
     warn "${DOMAIN} not open in Chrome yet"
     info "Opening ${DOMAIN}..."
     # Open the page via Windows
-    cmd.exe /C "start https://${DOMAIN}" >/dev/null 2>&1 || true
+    powershell.exe -NoProfile -Command "Start-Process 'https://${DOMAIN}'" 2>/dev/null || true
     echo ""
     echo -e "${YELLOW}Please log in to ${DOMAIN} in Chrome, then press Enter here...${NC}"
     read -r
