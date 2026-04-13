@@ -8,6 +8,7 @@
 set -euo pipefail
 
 CDP_PORT=18892
+PROXY_PORT=18893
 PROVIDER="${1:-deepseek}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -73,16 +74,12 @@ if $IS_WSL; then
     powershell.exe -NoProfile -Command "Stop-Process -Name chrome -Force -ErrorAction SilentlyContinue" 2>/dev/null || true
     sleep 2
 
-    # Firewall + portproxy (already proven to work)
-    info "Setting firewall + port forwarding..."
+    # Firewall
+    info "Setting firewall..."
     powershell.exe -NoProfile -Command "
-      # Firewall
       Remove-NetFirewallRule -DisplayName 'Claw Chrome CDP' -ErrorAction SilentlyContinue
-      New-NetFirewallRule -DisplayName 'Claw Chrome CDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${CDP_PORT} -ErrorAction SilentlyContinue
-      # Port forwarding: 0.0.0.0:${CDP_PORT} -> 127.0.0.1:${CDP_PORT}
-      netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=${CDP_PORT} 2>\$null
-      netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=${CDP_PORT} connectaddress=127.0.0.1 connectport=${CDP_PORT}
-    " >/dev/null 2>&1 || warn "Firewall/portproxy failed (run WSL as admin?)"
+      New-NetFirewallRule -DisplayName 'Claw Chrome CDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${CDP_PORT},${PROXY_PORT} -ErrorAction SilentlyContinue
+    " >/dev/null 2>&1 || warn "Firewall failed (need admin?)"
 
     # Launch Chrome
     info "Launching Chrome..."
@@ -98,6 +95,58 @@ if $IS_WSL; then
       Start-Process \$chrome -ArgumentList '--remote-debugging-port=${CDP_PORT}','--remote-debugging-address=0.0.0.0',\"--user-data-dir=\$prof\",'--no-first-run','--no-default-browser-check'
     " 2>/dev/null || { err "Chrome launch failed"; exit 1; }
     sleep 4
+
+    # Verify Chrome running on Windows
+    info "Verifying Chrome on Windows..."
+    CHROME_OK=false
+    for i in 1 2 3 4 5; do
+        if powershell.exe -NoProfile -Command "(Invoke-WebRequest -Uri 'http://localhost:${CDP_PORT}/json/version' -UseBasicParsing -TimeoutSec 3).StatusCode" >/dev/null 2>&1; then
+            CHROME_OK=true
+            break
+        fi
+        sleep 2
+    done
+    if ! $CHROME_OK; then
+        err "Chrome CDP not responding on Windows"
+        exit 1
+    fi
+    ok "Chrome running on Windows"
+
+    # Start HTTP proxy on Windows (PowerShell HttpListener)
+    # This is the ONLY method proven to work for WSL -> Windows CDP
+    info "Starting HTTP proxy (${PROXY_PORT} -> ${CDP_PORT})..."
+
+    # Kill old proxy
+    powershell.exe -NoProfile -Command "
+      Get-Process powershell -ErrorAction SilentlyContinue |
+        Where-Object { \$_.CommandLine -match 'CdpProxy' } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    " 2>/dev/null || true
+
+    # Start proxy in background
+    powershell.exe -NoProfile -Command "
+      Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-Command',\"
+        # CdpProxy
+        \\\$l = [System.Net.HttpListener]::new()
+        \\\$l.Prefixes.Add('http://+:${PROXY_PORT}/')
+        \\\$l.Start()
+        while (\\\$true) {
+          \\\$ctx = \\\$l.GetContext()
+          \\\$path = \\\$ctx.Request.RawUrl
+          try {
+            \\\$r = Invoke-WebRequest -Uri ('http://localhost:${CDP_PORT}' + \\\$path) -UseBasicParsing -TimeoutSec 10
+            \\\$ctx.Response.StatusCode = \\\$r.StatusCode
+            \\\$ctx.Response.ContentType = \\\$r.Headers['Content-Type']
+            \\\$b = [System.Text.Encoding]::UTF8.GetBytes(\\\$r.Content)
+            \\\$ctx.Response.OutputStream.Write(\\\$b, 0, \\\$b.Length)
+          } catch {
+            \\\$ctx.Response.StatusCode = 502
+          }
+          \\\$ctx.Response.Close()
+        }
+      \"
+    " 2>/dev/null || true
+    sleep 3
 
 else
     # Linux Desktop
@@ -121,57 +170,33 @@ info "Step 2/4: Connecting to Chrome..."
 
 CDP_URL=""
 
-# Function: try a URL with short timeout
-try_cdp() {
-    curl -sf --connect-timeout 2 "$1/json/version" >/dev/null 2>&1
-}
-
-# Desktop: just localhost
-if ! $IS_WSL; then
-    if try_cdp "http://localhost:${CDP_PORT}"; then
-        CDP_URL="http://localhost:${CDP_PORT}"
-    fi
-fi
-
-# WSL: try multiple methods
 if $IS_WSL; then
-    # Method 1: socat bridge (proven to work in user's environment)
-    # Kill old socat
-    kill $(lsof -t -i :${CDP_PORT} 2>/dev/null) 2>/dev/null || true
-    sleep 1
-
-    # Install socat if needed
-    if ! command -v socat &>/dev/null; then
-        info "Installing socat..."
-        sudo apt-get update -qq && sudo apt-get install -y -qq socat >/dev/null 2>&1
-    fi
-
-    info "Starting socat bridge (localhost:${CDP_PORT} -> ${WIN_IP}:${CDP_PORT})..."
-    socat TCP-LISTEN:${CDP_PORT},fork,reuseaddr TCP:${WIN_IP}:${CDP_PORT} &
-    SOCAT_PID=$!
-    sleep 2
-
-    if try_cdp "http://localhost:${CDP_PORT}"; then
-        CDP_URL="http://localhost:${CDP_PORT}"
-        ok "Connected via socat bridge"
+    # WSL: connect via HTTP proxy on PROXY_PORT
+    if curl -sf --connect-timeout 5 "http://${WIN_IP}:${PROXY_PORT}/json/version" >/dev/null 2>&1; then
+        CDP_URL="http://${WIN_IP}:${PROXY_PORT}"
+        ok "Connected via HTTP proxy (${WIN_IP}:${PROXY_PORT})"
     else
-        kill $SOCAT_PID 2>/dev/null || true
-
-        # Method 2: direct to Windows IP
-        if try_cdp "http://${WIN_IP}:${CDP_PORT}"; then
-            CDP_URL="http://${WIN_IP}:${CDP_PORT}"
-            ok "Connected directly to ${WIN_IP}"
+        # Retry
+        info "Waiting for proxy..."
+        sleep 3
+        if curl -sf --connect-timeout 5 "http://${WIN_IP}:${PROXY_PORT}/json/version" >/dev/null 2>&1; then
+            CDP_URL="http://${WIN_IP}:${PROXY_PORT}"
+            ok "Connected via HTTP proxy"
         fi
+    fi
+else
+    # Desktop: localhost directly
+    if curl -sf --connect-timeout 3 "http://localhost:${CDP_PORT}/json/version" >/dev/null 2>&1; then
+        CDP_URL="http://localhost:${CDP_PORT}"
+        ok "Connected via localhost"
     fi
 fi
 
 if [ -z "$CDP_URL" ]; then
-    err "Cannot connect to Chrome CDP"
+    err "Cannot connect to Chrome CDP from WSL"
     echo ""
     echo "Manual fallback:"
-    echo "  1. On Windows run:"
-    echo "     start chrome --remote-debugging-port=${CDP_PORT} --remote-debugging-address=0.0.0.0"
-    echo "  2. Then: ./scripts/web-login.sh ${PROVIDER} --cookies \"your_cookies\""
+    echo "  ./scripts/web-login.sh ${PROVIDER} --cookies \"your_cookies\""
     exit 1
 fi
 
@@ -202,14 +227,48 @@ if [ "$HAS_PAGE" != "yes" ]; then
 fi
 
 # ============================================================
-# Step 4: Capture cookies
+# Step 4: Capture cookies via CDP WebSocket
 # ============================================================
 info "Step 4/4: Capturing cookies..."
 
-CDP_HOST=$(echo "$CDP_URL" | sed 's|http://||' | cut -d/ -f1)
-USER_AGENT=$(curl -sf "${CDP_URL}/json/version" | python3 -c "import json,sys;print(json.load(sys.stdin).get('User-Agent',''))" 2>/dev/null || echo "")
+# For WebSocket, we need to connect to the actual Chrome WS endpoint
+# The HTTP proxy only handles HTTP, not WebSocket
+# So we use socat for the WS connection
+if $IS_WSL; then
+    # Get the WebSocket URL from the HTTP proxy
+    WS_INFO=$(curl -sf "${CDP_URL}/json" | python3 -c "
+import json,sys
+for t in json.load(sys.stdin):
+    if '${DOMAIN}' in t.get('url',''):
+        print(t.get('webSocketDebuggerUrl',''))
+        break
+" 2>/dev/null || echo "")
 
-PAGE_WS=$(curl -sf "${CDP_URL}/json" | python3 -c "
+    if [ -z "$WS_INFO" ]; then
+        err "${DOMAIN} page not found"
+        exit 1
+    fi
+
+    # WS URL points to localhost:18892 but we need to reach it from WSL
+    # Use socat to bridge WebSocket traffic
+    kill $(lsof -t -i :${CDP_PORT} 2>/dev/null) 2>/dev/null || true
+    sleep 1
+
+    if ! command -v socat &>/dev/null; then
+        info "Installing socat..."
+        sudo apt-get update -qq && sudo apt-get install -y -qq socat >/dev/null 2>&1
+    fi
+
+    socat TCP-LISTEN:${CDP_PORT},fork,reuseaddr TCP:${WIN_IP}:${PROXY_PORT} &
+    SOCAT_PID=$!
+    sleep 1
+
+    # Rewrite WS URL to go through socat
+    PAGE_WS=$(echo "$WS_INFO" | sed "s|ws://localhost:${CDP_PORT}|ws://localhost:${CDP_PORT}|" | sed "s|ws://127.0.0.1:${CDP_PORT}|ws://localhost:${CDP_PORT}|")
+    CDP_HOST="localhost:${CDP_PORT}"
+else
+    CDP_HOST=$(echo "$CDP_URL" | sed 's|http://||' | cut -d/ -f1)
+    PAGE_WS=$(curl -sf "${CDP_URL}/json" | python3 -c "
 import json,sys,re
 for t in json.load(sys.stdin):
     if '${DOMAIN}' in t.get('url',''):
@@ -217,14 +276,16 @@ for t in json.load(sys.stdin):
         print(re.sub(r'ws://[^/]+','ws://${CDP_HOST}',ws))
         break
 " 2>/dev/null || echo "")
+fi
 
-[ -z "$PAGE_WS" ] && { err "${DOMAIN} page not found"; exit 1; }
+[ -z "${PAGE_WS:-}" ] && { err "${DOMAIN} page not found"; exit 1; }
+info "WebSocket: ${PAGE_WS}"
 
+# Install websockets
 python3 -c "import websockets" 2>/dev/null || pip3 install websockets -q 2>/dev/null || true
 
 COOKIES_RAW=$(python3 -c "
-import asyncio, json
-import websockets
+import asyncio, json, websockets
 
 async def main():
     async with websockets.connect('${PAGE_WS}') as ws:
@@ -258,6 +319,7 @@ CONFIG_DIR="${CLAW_CONFIG_HOME:-$HOME/.claw}"
 CRED_FILE="$CONFIG_DIR/web-credentials.json"
 mkdir -p "$CONFIG_DIR"
 
+USER_AGENT=$(curl -sf "${CDP_URL}/json/version" | python3 -c "import json,sys;print(json.load(sys.stdin).get('User-Agent',''))" 2>/dev/null || echo "")
 TIMESTAMP=$(date +%s)
 UA_JSON="null"
 [ -n "$USER_AGENT" ] && UA_JSON="\"$USER_AGENT\""
