@@ -1,0 +1,10 @@
+# Force LF line endings for shell scripts (even on Windows/WSL checkout)
+*.sh text eol=lf
+*.py text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+
+# Windows bat files keep CRLF
+*.bat text eol=crlf
