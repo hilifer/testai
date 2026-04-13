@@ -403,15 +403,17 @@ echo ""
 # ============================================================
 info "Step 5: Starting web-bridge gateway..."
 
-GATEWAY_BIN="${SCRIPT_DIR}/../rust/target/release/web-bridge"
-CLI_BIN="${SCRIPT_DIR}/../rust/target/release/claw"
+# Resolve paths (SCRIPT_DIR is /path/to/project/scripts)
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+GATEWAY_BIN="${ROOT_DIR}/rust/target/release/web-bridge"
+CLI_BIN="${ROOT_DIR}/rust/target/release/claw"
 
 # Build if not compiled yet
 if [ ! -f "$GATEWAY_BIN" ] || [ ! -f "$CLI_BIN" ]; then
     info "Compiling (first time only)..."
-    cd "${SCRIPT_DIR}/../rust"
+    cd "${ROOT_DIR}/rust"
     cargo build --release -p web-bridge -p rusty-claude-cli 2>&1 | tail -3
-    cd "$PROJECT_DIR"
+    cd "${ROOT_DIR}"
 fi
 
 # Kill old gateway
@@ -431,11 +433,25 @@ else
     exit 1
 fi
 
+# Determine model name for CLI
+case "$PROVIDER" in
+    deepseek) MODEL="${PROVIDER}/deepseek-chat" ;;
+    chatgpt)  MODEL="${PROVIDER}/gpt-4o" ;;
+    gemini)   MODEL="${PROVIDER}/gemini-pro" ;;
+    qwen)     MODEL="${PROVIDER}/qwen-max" ;;
+    kimi)     MODEL="${PROVIDER}/kimi-chat" ;;
+esac
+
+# Cleanup gateway when script exits (Ctrl+C or CLI exit)
+cleanup() {
+    kill $GATEWAY_PID 2>/dev/null || true
+    # Kill proxy if we started it
+    [ -n "${PROXY_PID:-}" ] && kill $PROXY_PID 2>/dev/null || true
+}
+trap cleanup EXIT
+
 # Start CLI
 echo ""
-info "Launching claw CLI..."
+info "Launching: claw --model ${MODEL}"
 echo ""
-"$CLI_BIN" --model "${PROVIDER}/deepseek-chat"
-
-# Cleanup on exit
-kill $GATEWAY_PID 2>/dev/null || true
+"$CLI_BIN" --model "${MODEL}"
