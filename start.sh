@@ -227,46 +227,77 @@ if [ "$HAS_PAGE" != "yes" ]; then
 fi
 
 # ============================================================
-# Step 4: Capture cookies via CDP WebSocket
+# Step 4: Capture cookies via CDP
 # ============================================================
 info "Step 4/4: Capturing cookies..."
 
-# For WebSocket, we need to connect to the actual Chrome WS endpoint
-# The HTTP proxy only handles HTTP, not WebSocket
-# So we use socat for the WS connection
 if $IS_WSL; then
-    # Get the WebSocket URL from the HTTP proxy
-    WS_INFO=$(curl -sf "${CDP_URL}/json" | python3 -c "
+    # In WSL, WebSocket doesn't work through HTTP proxy.
+    # Use CDP HTTP endpoint to get cookies instead.
+    # Step 1: Find the target page ID
+    PAGE_ID=$(curl -sf "${CDP_URL}/json" | python3 -c "
 import json,sys
 for t in json.load(sys.stdin):
     if '${DOMAIN}' in t.get('url',''):
-        print(t.get('webSocketDebuggerUrl',''))
+        print(t.get('id',''))
         break
 " 2>/dev/null || echo "")
 
-    if [ -z "$WS_INFO" ]; then
+    if [ -z "$PAGE_ID" ]; then
         err "${DOMAIN} page not found"
         exit 1
     fi
+    info "Page ID: ${PAGE_ID}"
 
-    # WS URL points to localhost:18892 but we need to reach it from WSL
-    # Use socat to bridge WebSocket traffic
-    kill $(lsof -t -i :${CDP_PORT} 2>/dev/null) 2>/dev/null || true
-    sleep 1
+    # Step 2: Use CDP HTTP API to get cookies
+    # Activate the page first, then get cookies via /json/protocol
+    # Since HTTP CDP is limited, we use a Python script that connects
+    # WebSocket through the HTTP proxy by tunneling
 
-    if ! command -v socat &>/dev/null; then
-        info "Installing socat..."
-        sudo apt-get update -qq && sudo apt-get install -y -qq socat >/dev/null 2>&1
-    fi
+    # Actually, the simplest approach: use PowerShell on Windows to
+    # extract cookies and pass them back to WSL
+    info "Extracting cookies via Windows PowerShell..."
 
-    socat TCP-LISTEN:${CDP_PORT},fork,reuseaddr TCP:${WIN_IP}:${PROXY_PORT} &
-    SOCAT_PID=$!
-    sleep 1
+    COOKIES_RAW=$(powershell.exe -NoProfile -Command "
+      \$uri = 'ws://localhost:${CDP_PORT}/devtools/page/${PAGE_ID}'
+      \$ws = [System.Net.WebSockets.ClientWebSocket]::new()
+      \$ct = [System.Threading.CancellationToken]::None
+      \$ws.ConnectAsync(\$uri, \$ct).Wait()
 
-    # Rewrite WS URL to go through socat
-    PAGE_WS=$(echo "$WS_INFO" | sed "s|ws://localhost:${CDP_PORT}|ws://localhost:${CDP_PORT}|" | sed "s|ws://127.0.0.1:${CDP_PORT}|ws://localhost:${CDP_PORT}|")
-    CDP_HOST="localhost:${CDP_PORT}"
+      # Send Network.getCookies
+      \$msg = '{\"id\":1,\"method\":\"Network.getCookies\",\"params\":{\"urls\":[\"https://${DOMAIN}\"]}}'
+      \$bytes = [System.Text.Encoding]::UTF8.GetBytes(\$msg)
+      \$seg = [System.ArraySegment[byte]]::new(\$bytes)
+      \$ws.SendAsync(\$seg, [System.Net.WebSockets.WebSocketMessageType]::Text, \$true, \$ct).Wait()
+
+      # Receive response
+      \$buf = [byte[]]::new(1048576)
+      \$result = ''
+      do {
+        \$seg = [System.ArraySegment[byte]]::new(\$buf)
+        \$recv = \$ws.ReceiveAsync(\$seg, \$ct).Result
+        \$result += [System.Text.Encoding]::UTF8.GetString(\$buf, 0, \$recv.Count)
+      } while (-not \$recv.EndOfMessage)
+
+      \$ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, '', \$ct).Wait()
+
+      # Parse and output just the cookies array
+      \$json = \$result | ConvertFrom-Json
+      \$cookies = \$json.result.cookies | ForEach-Object {
+        @{
+          name = \$_.name
+          value = \$_.value
+          domain = \$_.domain
+          path = \$_.path
+          http_only = \$_.httpOnly
+          secure = \$_.secure
+        }
+      }
+      \$cookies | ConvertTo-Json -Compress
+    " 2>/dev/null | tr -d '\r')
+
 else
+    # Desktop: direct WebSocket connection
     CDP_HOST=$(echo "$CDP_URL" | sed 's|http://||' | cut -d/ -f1)
     PAGE_WS=$(curl -sf "${CDP_URL}/json" | python3 -c "
 import json,sys,re
@@ -276,15 +307,12 @@ for t in json.load(sys.stdin):
         print(re.sub(r'ws://[^/]+','ws://${CDP_HOST}',ws))
         break
 " 2>/dev/null || echo "")
-fi
 
-[ -z "${PAGE_WS:-}" ] && { err "${DOMAIN} page not found"; exit 1; }
-info "WebSocket: ${PAGE_WS}"
+    [ -z "$PAGE_WS" ] && { err "${DOMAIN} page not found"; exit 1; }
 
-# Install websockets
-python3 -c "import websockets" 2>/dev/null || pip3 install websockets -q 2>/dev/null || true
+    python3 -c "import websockets" 2>/dev/null || pip3 install websockets -q 2>/dev/null || true
 
-COOKIES_RAW=$(python3 -c "
+    COOKIES_RAW=$(python3 -c "
 import asyncio, json, websockets
 
 async def main():
@@ -307,6 +335,7 @@ async def main():
 
 asyncio.run(main())
 " 2>/dev/null || echo "[]")
+fi
 
 if [ "$COOKIES_RAW" = "[]" ] || [ -z "$COOKIES_RAW" ]; then
     err "Cookie extraction failed"
