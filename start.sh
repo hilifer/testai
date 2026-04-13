@@ -15,6 +15,7 @@
 set -euo pipefail
 
 CDP_PORT=18892
+RELAY_PORT=18893
 PROVIDER="${1:-deepseek}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -103,13 +104,14 @@ start_chrome_wsl() {
 
     sleep 3
 
-    # Start TCP relay
-    info "Starting TCP relay..."
+    # Start TCP relay on RELAY_PORT -> CDP_PORT
+    # (Cannot use same port as Chrome, it would conflict)
+    info "Starting TCP relay (port ${RELAY_PORT} -> ${CDP_PORT})..."
     powershell.exe -NoProfile -Command "
       Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-Command','
         while(\$true){
           try{
-            \$l=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any,${CDP_PORT});
+            \$l=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any,${RELAY_PORT});
             \$l.Start();
             while(\$true){
               \$c=\$l.AcceptTcpClient();
@@ -188,33 +190,45 @@ esac
 info "Step 2/4: Connecting to Chrome CDP..."
 
 CDP_URL=""
+local_win_ip=$(cat /tmp/claw-win-ip 2>/dev/null || ip route show default 2>/dev/null | awk '{print $3}')
 
-# Try localhost first (works for desktop + WSL with relay)
+# Try 1: localhost on CDP_PORT (desktop, or lucky WSL)
 if curl -sf --connect-timeout 3 "http://localhost:${CDP_PORT}/json/version" >/dev/null 2>&1; then
     CDP_URL="http://localhost:${CDP_PORT}"
+    ok "Connected via localhost:${CDP_PORT}"
 fi
 
-# Try Windows IP (WSL direct)
-if [ -z "$CDP_URL" ] && [ "$PLATFORM" = "wsl" ]; then
-    local_win_ip=$(cat /tmp/claw-win-ip 2>/dev/null || ip route show default | awk '{print $3}')
-    if curl -sf --connect-timeout 3 "http://${local_win_ip}:${CDP_PORT}/json/version" >/dev/null 2>&1; then
-        CDP_URL="http://${local_win_ip}:${CDP_PORT}"
+# Try 2: Windows IP on RELAY_PORT (WSL relay)
+if [ -z "$CDP_URL" ] && [ "$PLATFORM" = "wsl" ] && [ -n "$local_win_ip" ]; then
+    if curl -sf --connect-timeout 3 "http://${local_win_ip}:${RELAY_PORT}/json/version" >/dev/null 2>&1; then
+        CDP_URL="http://${local_win_ip}:${RELAY_PORT}"
+        ok "Connected via relay ${local_win_ip}:${RELAY_PORT}"
     fi
 fi
 
-# WSL fallback: socat bridge
-if [ -z "$CDP_URL" ] && [ "$PLATFORM" = "wsl" ]; then
+# Try 3: Windows IP on CDP_PORT direct
+if [ -z "$CDP_URL" ] && [ "$PLATFORM" = "wsl" ] && [ -n "$local_win_ip" ]; then
+    if curl -sf --connect-timeout 3 "http://${local_win_ip}:${CDP_PORT}/json/version" >/dev/null 2>&1; then
+        CDP_URL="http://${local_win_ip}:${CDP_PORT}"
+        ok "Connected via ${local_win_ip}:${CDP_PORT}"
+    fi
+fi
+
+# Try 4: socat bridge from WSL to Windows relay port
+if [ -z "$CDP_URL" ] && [ "$PLATFORM" = "wsl" ] && [ -n "$local_win_ip" ]; then
     info "Starting socat bridge..."
     if ! command -v socat &>/dev/null; then
         sudo apt-get update -qq && sudo apt-get install -y -qq socat >/dev/null 2>&1
     fi
+    # Clean up old socat
     kill $(lsof -t -i :${CDP_PORT} 2>/dev/null) 2>/dev/null || true
     sleep 1
-    local_win_ip=$(cat /tmp/claw-win-ip 2>/dev/null || ip route show default | awk '{print $3}')
-    socat TCP-LISTEN:${CDP_PORT},fork,reuseaddr TCP:${local_win_ip}:${CDP_PORT} &
+    # Bridge: local CDP_PORT -> Windows RELAY_PORT -> Chrome CDP_PORT
+    socat TCP-LISTEN:${CDP_PORT},fork,reuseaddr TCP:${local_win_ip}:${RELAY_PORT} &
     sleep 2
     if curl -sf --connect-timeout 3 "http://localhost:${CDP_PORT}/json/version" >/dev/null 2>&1; then
         CDP_URL="http://localhost:${CDP_PORT}"
+        ok "Connected via socat bridge"
     fi
 fi
 
