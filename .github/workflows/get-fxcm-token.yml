@@ -10,6 +10,7 @@ on:
 jobs:
   get-token:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:
@@ -24,14 +25,14 @@ jobs:
 
       - name: Install Playwright
         run: |
-          pip install playwright requests
+          pip install playwright
           playwright install chromium
           playwright install-deps
 
-      - name: Login to FXCM Trading Station and get token
+      - name: Login and find Token Management
         run: |
           python3 << 'PYEOF'
-          import json, time, requests
+          import json, time, re
           from playwright.sync_api import sync_playwright
 
           log = []
@@ -42,283 +43,162 @@ jobs:
           USERNAME = "D103538926"
           PASSWORD = "cqa7U"
 
-          p("=" * 60)
-          p("STEP 1: Open Trading Station Web")
-          p("=" * 60)
-
           with sync_playwright() as pw:
               browser = pw.chromium.launch(headless=True)
               context = browser.new_context(
-                  user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                  user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0",
                   viewport={"width": 1920, "height": 1080}
               )
               page = context.new_page()
 
               try:
-                  # Navigate to Trading Station
-                  p("Navigating to tradingstation.fxcm.com...")
+                  # Login
                   page.goto("https://tradingstation.fxcm.com/", timeout=60000)
                   time.sleep(3)
-                  p(f"Current URL: {page.url}")
-                  p(f"Title: {page.title()}")
+                  page.wait_for_load_state("networkidle", timeout=30000)
+                  p(f"URL: {page.url}")
 
-                  # Take screenshot
-                  page.screenshot(path="screenshot_1_landing.png")
-                  p("Screenshot 1 saved")
+                  # Click Demo tab
+                  demo = page.query_selector('text=Demo')
+                  if demo:
+                      demo.click()
+                      time.sleep(1)
 
-                  # Switch to Demo tab first (account starts with D)
-                  p("\nSwitching to Demo tab...")
-                  demo_selectors = [
-                      'text=Demo',
-                      'button:has-text("Demo")',
-                      'a:has-text("Demo")',
-                      'div:has-text("Demo")',
-                      '[class*="demo" i]',
-                  ]
-                  for sel in demo_selectors:
-                      try:
-                          els = page.query_selector_all(sel)
-                          for el in els:
-                              txt = (el.text_content() or "").strip()
-                              if txt.lower() == "demo":
-                                  p(f"Clicking Demo tab: {sel} -> '{txt}'")
-                                  el.click()
-                                  time.sleep(2)
-                                  break
-                      except:
-                          pass
+                  # Fill login
+                  page.fill('input[name="username"]', USERNAME)
+                  page.fill('input[name="password"]', PASSWORD)
+                  page.click('button:has-text("Sign in")')
+                  time.sleep(10)
+                  page.wait_for_load_state("networkidle", timeout=30000)
+                  p(f"After login URL: {page.url}")
 
-                  page.screenshot(path="screenshot_1b_demo_tab.png")
-                  p("Screenshot 1b saved (after Demo tab click)")
-                  page.wait_for_load_state("networkidle", timeout=15000)
+                  # Verify login
+                  body = page.inner_text("body")
+                  if "EQUITY" in body or "Equity" in body:
+                      p("LOGIN OK!")
+                  else:
+                      p("Login failed")
+                      p(body[:500])
 
-                  # Try to find login fields
+                  page.screenshot(path="ss_loggedin.png")
+
+                  # FULL PAGE HTML DUMP - find all elements in top area
+                  p("\n=== FULL HTML SCAN FOR TOKEN/ACCOUNT MENUS ===")
                   html = page.content()
 
-                  # Look for username/login input
-                  login_selectors = [
-                      'input[name="login"]',
-                      'input[name="username"]',
-                      'input[name="user"]',
-                      'input[name="Login"]',
-                      'input[id="login"]',
-                      'input[id="username"]',
-                      'input[type="text"]',
-                      'input[placeholder*="user" i]',
-                      'input[placeholder*="login" i]',
-                      'input[placeholder*="account" i]',
+                  # Find anything related to token, account, user, settings, profile
+                  patterns = [
+                      r'[Tt]oken',
+                      r'[Aa]ccount',
+                      r'[Ss]etting',
+                      r'[Pp]rofile',
+                      r'[Uu]ser',
+                      r'D103538926',
+                      r'03528078',
+                      r'[Mm]anage',
+                      r'[Pp]reference',
                   ]
+                  for pat in patterns:
+                      matches = re.findall(f'.{{0,80}}{pat}.{{0,80}}', html)
+                      if matches:
+                          p(f"\nPattern '{pat}' found {len(matches)} times:")
+                          for m in matches[:5]:
+                              clean = re.sub(r'<[^>]+>', ' ', m).strip()
+                              p(f"  ...{clean[:150]}...")
 
-                  login_input = None
-                  for sel in login_selectors:
+                  # List ALL elements with text in the top 200px area
+                  p("\n=== ELEMENTS IN TOP AREA ===")
+                  top_elements = page.evaluate("""() => {
+                      const els = document.querySelectorAll('*');
+                      const result = [];
+                      for (const el of els) {
+                          const rect = el.getBoundingClientRect();
+                          if (rect.top < 200 && rect.height > 0 && rect.width > 0) {
+                              const text = el.textContent?.trim().substring(0, 100);
+                              const tag = el.tagName;
+                              const cls = el.className?.toString().substring(0, 80);
+                              const id = el.id;
+                              if (text && text.length > 0 && text.length < 80) {
+                                  result.push({tag, id, cls, text});
+                              }
+                          }
+                      }
+                      return result.slice(0, 60);
+                  }""")
+                  for el in top_elements:
+                      p(f"  <{el['tag']} id='{el['id']}' class='{el['cls']}'> {el['text']}")
+
+                  # Try clicking account number in top area
+                  p("\n=== CLICKING TOP AREA ELEMENTS ===")
+                  # Click the account number
+                  acct_el = page.query_selector('text=03528078')
+                  if acct_el:
+                      p("Clicking 03528078...")
+                      acct_el.click()
+                      time.sleep(2)
+                      page.screenshot(path="ss_after_acct_click.png")
+                      # Check for dropdown/menu
+                      new_body = page.inner_text("body")
+                      p(f"After click text (first 1000):\n{new_body[:1000]}")
+                      if "token" in new_body.lower():
+                          p("\n*** TOKEN MANAGEMENT FOUND! ***")
+                          # Click Token Management
+                          tm = page.query_selector('text=Token Management') or page.query_selector('text=Token')
+                          if tm:
+                              tm.click()
+                              time.sleep(2)
+                              page.screenshot(path="ss_token_mgmt.png")
+                              tm_text = page.inner_text("body")
+                              p(f"Token Management page:\n{tm_text[:2000]}")
+
+                              # If there's a password prompt, fill it
+                              pw_input = page.query_selector('input[type="password"]')
+                              if pw_input:
+                                  p("Found password prompt, filling...")
+                                  pw_input.fill(PASSWORD)
+                                  # Click generate/submit
+                                  gen_btn = page.query_selector('button:has-text("Generate")') or page.query_selector('button[type="submit"]')
+                                  if gen_btn:
+                                      gen_btn.click()
+                                      time.sleep(3)
+                                      page.screenshot(path="ss_token_generated.png")
+                                      final = page.inner_text("body")
+                                      p(f"After generate:\n{final[:2000]}")
+                                      tokens = re.findall(r'[a-f0-9]{30,}', page.content())
+                                      if tokens:
+                                          p(f"\n*** ACCESS TOKEN: {tokens[0]} ***")
+
+                  # Try ALL SVG/icon buttons (settings gear, user icon etc)
+                  p("\n=== TRYING SVG/ICON BUTTONS ===")
+                  icons = page.query_selector_all("svg, [class*='icon'], [class*='Icon'], [class*='menu'], [class*='Menu'], [class*='header'] button, [class*='nav'] button, [class*='toolbar'] button")
+                  p(f"Found {len(icons)} icon elements")
+                  for idx, icon in enumerate(icons[:15]):
                       try:
-                          el = page.query_selector(sel)
-                          if el and el.is_visible():
-                              login_input = el
-                              p(f"Found login input: {sel}")
-                              break
+                          if icon.is_visible():
+                              box = icon.bounding_box()
+                              if box and box['y'] < 100:
+                                  p(f"  Clicking icon #{idx} at y={box['y']:.0f}")
+                                  icon.click()
+                                  time.sleep(1)
+                                  new_text = page.inner_text("body")
+                                  if "token" in new_text.lower() or "management" in new_text.lower():
+                                      p(f"  *** FOUND TOKEN MENU after icon #{idx}! ***")
+                                      p(new_text[:1000])
+                                      page.screenshot(path=f"ss_icon_{idx}.png")
+                                      break
                       except:
                           pass
-
-                  password_selectors = [
-                      'input[name="password"]',
-                      'input[name="passwd"]',
-                      'input[type="password"]',
-                      'input[id="password"]',
-                  ]
-
-                  password_input = None
-                  for sel in password_selectors:
-                      try:
-                          el = page.query_selector(sel)
-                          if el and el.is_visible():
-                              password_input = el
-                              p(f"Found password input: {sel}")
-                              break
-                      except:
-                          pass
-
-                  if login_input and password_input:
-                      p("\n--- Filling login form ---")
-                      login_input.fill(USERNAME)
-                      time.sleep(0.5)
-                      password_input.fill(PASSWORD)
-                      time.sleep(0.5)
-                      page.screenshot(path="screenshot_2_filled.png")
-                      p("Screenshot 2 saved (form filled)")
-
-                      # Find and click submit
-                      submit_selectors = [
-                          'button:has-text("Sign in to Demo")',
-                          'button:has-text("Sign in")',
-                          'button[type="submit"]',
-                          'input[type="submit"]',
-                          'button:has-text("Login")',
-                          'button:has-text("Log In")',
-                          '#loginButton',
-                          '.login-button',
-                          'button.btn-primary',
-                      ]
-
-                      for sel in submit_selectors:
-                          try:
-                              btn = page.query_selector(sel)
-                              if btn and btn.is_visible():
-                                  p(f"Clicking submit: {sel}")
-                                  btn.click()
-                                  break
-                          except:
-                              pass
-
-                      # Wait for navigation
-                      p("Waiting for login response...")
-                      time.sleep(10)
-                      page.wait_for_load_state("networkidle", timeout=30000)
-                      p(f"Current URL after login: {page.url}")
-                      p(f"Title: {page.title()}")
-                      page.screenshot(path="screenshot_3_after_login.png")
-                      p("Screenshot 3 saved (after login)")
-
-                      # Check login
-                      page_text = page.inner_text("body")
-                      if "EQUITY" in page_text or "Equity" in page_text:
-                          p("\nLOGIN SUCCESSFUL!")
-                      else:
-                          p("\nLogin may have failed.")
-                          p(page_text[:500])
-
-                      import re
-
-                      # CAPTURE ALL AUTH DATA
-                      p("\n--- Capturing auth data ---")
-
-                      # 1. Cookies
-                      cookies = context.cookies()
-                      p(f"\nCookies ({len(cookies)}):")
-                      for c in cookies:
-                          p(f"  {c['name']}={c['value'][:80]}... (domain={c['domain']})")
-
-                      # 2. LocalStorage & SessionStorage
-                      p("\nLocalStorage:")
-                      ls = page.evaluate("() => { let d={}; for(let i=0;i<localStorage.length;i++){let k=localStorage.key(i); d[k]=localStorage.getItem(k);} return d; }")
-                      for k, v in ls.items():
-                          p(f"  {k}: {str(v)[:200]}")
-
-                      p("\nSessionStorage:")
-                      ss = page.evaluate("() => { let d={}; for(let i=0;i<sessionStorage.length;i++){let k=sessionStorage.key(i); d[k]=sessionStorage.getItem(k);} return d; }")
-                      for k, v in ss.items():
-                          p(f"  {k}: {str(v)[:200]}")
-
-                      # 3. Look for tokens in JS variables
-                      p("\nChecking JS globals for tokens...")
-                      js_checks = [
-                          "window.__FXCM_TOKEN__",
-                          "window.accessToken",
-                          "window.token",
-                          "window.__SESSION__",
-                          "window.__AUTH__",
-                          "document.cookie",
-                      ]
-                      for js in js_checks:
-                          try:
-                              val = page.evaluate(f"() => {{ try {{ return {js} }} catch(e) {{ return null }} }}")
-                              if val:
-                                  p(f"  {js} = {str(val)[:300]}")
-                          except:
-                              pass
-
-                      # 4. Intercept network requests - reload page and capture
-                      p("\n--- Intercepting network requests ---")
-                      captured = []
-                      def handle_request(request):
-                          url = request.url
-                          headers = request.headers
-                          if "fxcm" in url or "api" in url or "auth" in url or "token" in url:
-                              entry = {"url": url, "method": request.method}
-                              for h in ["authorization", "x-access-token", "x-auth-token", "bearer", "cookie"]:
-                                  if h in headers:
-                                      entry[h] = headers[h][:200]
-                              captured.append(entry)
-
-                      def handle_response(response):
-                          url = response.url
-                          if "token" in url.lower() or "auth" in url.lower() or "session" in url.lower():
-                              try:
-                                  body = response.text()
-                                  captured.append({"resp_url": url, "status": response.status, "body": body[:500]})
-                              except:
-                                  pass
-
-                      page.on("request", handle_request)
-                      page.on("response", handle_response)
-
-                      # Navigate back to main page to trigger API calls
-                      page.goto("https://app.fxcm.com/desktop/", timeout=30000)
-                      time.sleep(8)
-                      page.wait_for_load_state("networkidle", timeout=15000)
-
-                      p(f"\nCaptured {len(captured)} API requests:")
-                      for c in captured:
-                          p(f"  {json.dumps(c)[:300]}")
-
-                      # 5. Scan all cookies/storage for token-like values
-                      p("\n--- Scanning for access tokens ---")
-                      all_values = []
-                      for c in cookies:
-                          all_values.append(("cookie:" + c["name"], c["value"]))
-                      for k, v in ls.items():
-                          all_values.append(("ls:" + k, str(v)))
-                      for k, v in ss.items():
-                          all_values.append(("ss:" + k, str(v)))
-
-                      for name, val in all_values:
-                          tokens = re.findall(r'[a-f0-9]{30,}', val)
-                          if tokens:
-                              p(f"\n*** POSSIBLE TOKEN in {name}: {tokens[0]} ***")
-
-                      # 6. Try using captured session to call FXCM REST API directly
-                      p("\n--- Testing FXCM REST API with captured session ---")
-                      import requests as req_lib
-                      session = req_lib.Session()
-                      for c in cookies:
-                          session.cookies.set(c["name"], c["value"], domain=c["domain"])
-
-                      api_urls = [
-                          "https://api-demo.fxcm.com:443/socket.io/?EIO=3&transport=polling",
-                          "https://tradingstation.fxcm.com/api/account",
-                      ]
-                      for url in api_urls:
-                          try:
-                              resp = session.get(url, timeout=10,
-                                  headers={"User-Agent": "Mozilla/5.0"})
-                              p(f"[{resp.status_code}] GET {url}")
-                              p(f"  Body: {resp.text[:300]}")
-                          except Exception as e:
-                              p(f"[ERROR] {url}: {e}")
-
-                  else:
-                      p("Could not find login form!")
-                      p(f"\nPage HTML (first 3000 chars):\n{html[:3000]}")
-
-                      # Maybe it's a SPA, try iframe
-                      frames = page.frames
-                      p(f"\nFrames: {len(frames)}")
-                      for f in frames:
-                          p(f"  Frame: {f.url}")
 
               except Exception as e:
-                  p(f"\nERROR: {e}")
+                  p(f"ERROR: {e}")
                   import traceback
                   p(traceback.format_exc())
-                  page.screenshot(path="screenshot_error.png")
-
+                  page.screenshot(path="ss_error.png")
               finally:
                   browser.close()
 
-          # Save results
           with open("fxcm_token_log.txt", "w") as f:
               f.write("\n".join(log))
-
           PYEOF
 
       - name: Upload screenshots
@@ -326,7 +206,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fxcm-screenshots
-          path: screenshot_*.png
+          path: ss_*.png
 
       - name: Push results
         if: always()
@@ -334,21 +214,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           CONTENT=$(base64 -w 0 fxcm_token_log.txt)
-          # Check if file exists
           SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/contents/fxcm_token_log.txt?ref=claude/fix-demo-database-b3FtT" \
             | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
-
           if [ -n "$SHA" ]; then
             curl -s -X PUT \
               -H "Authorization: token $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/${{ github.repository }}/contents/fxcm_token_log.txt" \
-              -d "{\"message\":\"ci: FXCM token retrieval results\",\"content\":\"$CONTENT\",\"branch\":\"claude/fix-demo-database-b3FtT\",\"sha\":\"$SHA\"}"
+              -d "{\"message\":\"ci: FXCM token log\",\"content\":\"$CONTENT\",\"branch\":\"claude/fix-demo-database-b3FtT\",\"sha\":\"$SHA\"}"
           else
             curl -s -X PUT \
               -H "Authorization: token $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/${{ github.repository }}/contents/fxcm_token_log.txt" \
-              -d "{\"message\":\"ci: FXCM token retrieval results\",\"content\":\"$CONTENT\",\"branch\":\"claude/fix-demo-database-b3FtT\"}"
+              -d "{\"message\":\"ci: FXCM token log\",\"content\":\"$CONTENT\",\"branch\":\"claude/fix-demo-database-b3FtT\"}"
           fi
