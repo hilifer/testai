@@ -1,18 +1,63 @@
 """
 demo.py 测试脚本
-验证所有业务逻辑：参数解析、API 请求构建、数据展示
+使用 FXCM 官方 CSV 数据格式做端到端验证
 
 运行: python test_demo.py
 """
 
+import csv
+import datetime
+import gzip
 import io
-import json
 import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from threading import Thread
 from urllib.error import HTTPError, URLError
+from unittest.mock import patch
 
 import demo
+
+# ============================================================
+# FXCM 官方 CSV 格式的真实样本数据
+# 字段来自 https://github.com/fxcm/MarketData
+# ============================================================
+FXCM_SAMPLE_CSV = """\
+DateTime,BidOpen,BidHigh,BidLow,BidClose,AskOpen,AskHigh,AskLow,AskClose,TickQty
+01/05/2020 17:00:00,1.11580,1.11616,1.11548,1.11592,1.11610,1.11630,1.11564,1.11608,9156
+01/05/2020 18:00:00,1.11592,1.11620,1.11572,1.11610,1.11608,1.11640,1.11588,1.11628,5765
+01/05/2020 19:00:00,1.11610,1.11668,1.11600,1.11650,1.11628,1.11684,1.11618,1.11668,4123
+01/05/2020 20:00:00,1.11650,1.11688,1.11622,1.11674,1.11668,1.11702,1.11638,1.11690,3842
+01/05/2020 21:00:00,1.11674,1.11700,1.11658,1.11680,1.11690,1.11718,1.11674,1.11696,2156
+01/06/2020 09:00:00,1.11782,1.11830,1.11760,1.11810,1.11798,1.11846,1.11776,1.11826,12456
+01/06/2020 10:00:00,1.11810,1.11892,1.11790,1.11870,1.11826,1.11908,1.11806,1.11886,15678
+01/06/2020 11:00:00,1.11870,1.11920,1.11842,1.11856,1.11886,1.11936,1.11858,1.11872,11234
+"""
+
+
+def make_gzipped_csv(csv_text):
+    """将 CSV 文本压缩为 gzip 格式 (FXCM 官方格式)"""
+    return gzip.compress(csv_text.encode("utf-8"))
+
+
+class FXCMTestServer(BaseHTTPRequestHandler):
+    """模拟 FXCM candledata.fxcorporate.com 的本地测试服务器"""
+
+    def do_GET(self):
+        # 模拟 FXCM URL 路由: /{periodicity}/{symbol}/{year}/{week}.csv.gz
+        path = self.path
+
+        if "/INVALID/" in path:
+            self.send_error(404)
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/gzip")
+        self.end_headers()
+        self.wfile.write(make_gzipped_csv(FXCM_SAMPLE_CSV))
+
+    def log_message(self, format, *args):
+        pass  # suppress output
 
 
 class TestParseArgs(unittest.TestCase):
@@ -20,211 +65,201 @@ class TestParseArgs(unittest.TestCase):
 
     def test_defaults(self):
         args = demo.parse_args([])
-        self.assertEqual(args.base, "USD")
-        self.assertEqual(args.targets, demo.DEFAULT_TARGETS)
-        self.assertIsNone(args.amount)
-        self.assertIsNone(args.history)
+        self.assertEqual(args.symbol, "EURUSD")
+        self.assertEqual(args.periodicity, "H1")
+        self.assertIsNone(args.date)
+        self.assertIsNone(args.year)
         self.assertFalse(args.list)
 
-    def test_custom_base(self):
-        args = demo.parse_args(["-b", "EUR"])
-        self.assertEqual(args.base, "EUR")
+    def test_symbol(self):
+        args = demo.parse_args(["-s", "USDJPY"])
+        self.assertEqual(args.symbol, "USDJPY")
 
-    def test_custom_targets(self):
-        args = demo.parse_args(["-t", "GBP,JPY"])
-        self.assertEqual(args.targets, "GBP,JPY")
+    def test_periodicity(self):
+        args = demo.parse_args(["-p", "m1"])
+        self.assertEqual(args.periodicity, "m1")
 
-    def test_amount(self):
-        args = demo.parse_args(["-a", "1000"])
-        self.assertEqual(args.amount, 1000.0)
+    def test_date(self):
+        args = demo.parse_args(["-d", "2020-03-15"])
+        self.assertEqual(args.date, "2020-03-15")
 
-    def test_history(self):
-        args = demo.parse_args(["--history", "2025-01-01", "2025-01-31"])
-        self.assertEqual(args.history, ["2025-01-01", "2025-01-31"])
+    def test_year(self):
+        args = demo.parse_args(["-y", "2020"])
+        self.assertEqual(args.year, 2020)
 
     def test_list_flag(self):
         args = demo.parse_args(["--list"])
         self.assertTrue(args.list)
 
-    def test_all_combined(self):
-        args = demo.parse_args(["-b", "EUR", "-t", "USD,GBP", "-a", "500"])
-        self.assertEqual(args.base, "EUR")
-        self.assertEqual(args.targets, "USD,GBP")
-        self.assertEqual(args.amount, 500.0)
+
+class TestBuildUrl(unittest.TestCase):
+    """测试 URL 构建"""
+
+    def test_h1_url(self):
+        url = demo.build_url("EURUSD", "H1", 2020, 1)
+        self.assertEqual(url, "https://candledata.fxcorporate.com/H1/EURUSD/2020/1.csv.gz")
+
+    def test_m1_url(self):
+        url = demo.build_url("USDJPY", "m1", 2020, 15)
+        self.assertEqual(url, "https://candledata.fxcorporate.com/m1/USDJPY/2020/15.csv.gz")
+
+    def test_d1_url(self):
+        url = demo.build_url("GBPUSD", "D1", 2020)
+        self.assertEqual(url, "https://candledata.fxcorporate.com/D1/GBPUSD/2020.csv.gz")
 
 
-class TestApiRequest(unittest.TestCase):
-    """测试 API 请求逻辑"""
+class TestGetTargetWeek(unittest.TestCase):
+    """测试日期到周数的转换"""
 
-    @patch("demo.urllib.request.urlopen")
-    def test_success(self, mock_urlopen):
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = b'{"base":"USD","rates":{"EUR":0.92}}'
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_resp
+    def test_specific_date(self):
+        year, week = demo.get_target_week("2020-03-15")
+        self.assertEqual(year, 2020)
+        self.assertEqual(week, 11)
 
-        result = demo.api_request("latest?base=USD")
-        self.assertEqual(result["base"], "USD")
-        self.assertAlmostEqual(result["rates"]["EUR"], 0.92)
-
-        call_args = mock_urlopen.call_args
-        req = call_args[0][0]
-        self.assertIn("latest?base=USD", req.full_url)
-        self.assertEqual(req.get_header("User-agent"), "ToolBoxPro/1.0")
-
-    @patch("demo.urllib.request.urlopen")
-    def test_http_error_422(self, mock_urlopen):
-        mock_urlopen.side_effect = HTTPError(
-            "url", 422, "Unprocessable", {}, io.BytesIO(b"")
-        )
-        with self.assertRaises(SystemExit) as ctx:
-            demo.api_request("latest?base=INVALID")
-        self.assertEqual(ctx.exception.code, 1)
-
-    @patch("demo.urllib.request.urlopen")
-    def test_network_error(self, mock_urlopen):
-        mock_urlopen.side_effect = URLError("Connection refused")
-        with self.assertRaises(SystemExit) as ctx:
-            demo.api_request("latest?base=USD")
-        self.assertEqual(ctx.exception.code, 1)
+    def test_default_date(self):
+        year, week = demo.get_target_week(None)
+        self.assertIsInstance(year, int)
+        self.assertIsInstance(week, int)
+        self.assertGreaterEqual(week, 1)
+        self.assertLessEqual(week, 53)
 
 
-class TestQueryLatest(unittest.TestCase):
-    """测试最新汇率查询"""
+class TestParseCandleRows(unittest.TestCase):
+    """测试 FXCM CSV 数据解析 (使用真实 FXCM 数据格式)"""
 
-    @patch("demo.api_request")
-    def test_basic_query(self, mock_api):
-        mock_api.return_value = {
-            "base": "USD",
-            "date": "2025-04-10",
-            "rates": {"EUR": 0.92, "GBP": 0.79, "JPY": 149.5}
-        }
+    def setUp(self):
+        reader = csv.DictReader(io.StringIO(FXCM_SAMPLE_CSV))
+        self.rows = list(reader)
+
+    def test_parse_count(self):
+        candles = demo.parse_candle_rows(self.rows)
+        self.assertEqual(len(candles), 8)
+
+    def test_parse_fields(self):
+        candles = demo.parse_candle_rows(self.rows)
+        c = candles[0]
+        self.assertEqual(c["datetime"], "01/05/2020 17:00:00")
+        self.assertAlmostEqual(c["bid_open"], 1.11580)
+        self.assertAlmostEqual(c["bid_high"], 1.11616)
+        self.assertAlmostEqual(c["bid_low"], 1.11548)
+        self.assertAlmostEqual(c["bid_close"], 1.11592)
+        self.assertAlmostEqual(c["ask_open"], 1.11610)
+        self.assertAlmostEqual(c["ask_close"], 1.11608)
+
+    def test_parse_last_row(self):
+        candles = demo.parse_candle_rows(self.rows)
+        c = candles[-1]
+        self.assertEqual(c["datetime"], "01/06/2020 11:00:00")
+        self.assertAlmostEqual(c["bid_close"], 1.11856)
+
+    def test_empty_input(self):
+        candles = demo.parse_candle_rows([])
+        self.assertEqual(candles, [])
+
+
+class TestDisplayCandles(unittest.TestCase):
+    """测试 K 线数据展示"""
+
+    def setUp(self):
+        reader = csv.DictReader(io.StringIO(FXCM_SAMPLE_CSV))
+        self.candles = demo.parse_candle_rows(list(reader))
+
+    def test_display_all(self):
         with patch("sys.stdout", new_callable=io.StringIO) as out:
-            rates = demo.query_latest("USD", "EUR,GBP,JPY")
-
-        mock_api.assert_called_once_with("latest?base=USD&symbols=EUR,GBP,JPY")
-        self.assertEqual(len(rates), 3)
-        self.assertIn("EUR", rates)
+            count = demo.display_candles(self.candles, "EURUSD", "H1")
+        self.assertEqual(count, 8)
         output = out.getvalue()
-        self.assertIn("USD/EUR", output)
-        self.assertIn("0.92", output)
+        self.assertIn("EURUSD", output)
+        self.assertIn("1.11580", output)
+        self.assertIn("共 8 条记录", output)
 
-    @patch("demo.api_request")
-    def test_with_amount(self, mock_api):
-        mock_api.return_value = {
-            "base": "USD",
-            "date": "2025-04-10",
-            "rates": {"CNY": 7.25}
-        }
+    def test_display_limited(self):
         with patch("sys.stdout", new_callable=io.StringIO) as out:
-            demo.query_latest("USD", "CNY", amount=1000)
-
+            count = demo.display_candles(self.candles, "EURUSD", "H1", limit=3)
+        self.assertEqual(count, 3)
         output = out.getvalue()
-        self.assertIn("1,000.00 USD", output)
-        self.assertIn("7,250.00 CNY", output)
+        self.assertIn("显示最近 3 条", output)
 
-    @patch("demo.api_request")
-    def test_empty_rates(self, mock_api):
-        mock_api.return_value = {"base": "USD", "date": "2025-04-10", "rates": {}}
+    def test_display_change(self):
         with patch("sys.stdout", new_callable=io.StringIO) as out:
-            rates = demo.query_latest("USD", "XYZ")
-
-        self.assertEqual(rates, {})
-        self.assertIn("无数据", out.getvalue())
-
-
-class TestQueryHistory(unittest.TestCase):
-    """测试历史汇率查询"""
-
-    @patch("demo.api_request")
-    def test_history_query(self, mock_api):
-        mock_api.return_value = {
-            "base": "USD",
-            "start_date": "2025-01-02",
-            "end_date": "2025-01-03",
-            "rates": {
-                "2025-01-02": {"EUR": 0.91},
-                "2025-01-03": {"EUR": 0.92}
-            }
-        }
-        with patch("sys.stdout", new_callable=io.StringIO) as out:
-            rates = demo.query_history("USD", "EUR", "2025-01-02", "2025-01-03")
-
-        mock_api.assert_called_once_with(
-            "2025-01-02..2025-01-03?base=USD&symbols=EUR"
-        )
-        self.assertEqual(len(rates), 2)
+            demo.display_candles(self.candles, "EURUSD", "H1")
         output = out.getvalue()
-        self.assertIn("2025-01-02", output)
-        self.assertIn("0.91", output)
+        self.assertIn("期间变动", output)
+        self.assertIn("%", output)
 
-    @patch("demo.api_request")
-    def test_empty_history(self, mock_api):
-        mock_api.return_value = {
-            "base": "USD",
-            "start_date": "2025-01-01",
-            "end_date": "2025-01-01",
-            "rates": {}
-        }
+
+class TestEndToEnd(unittest.TestCase):
+    """端到端测试：启动本地 HTTP 服务模拟 FXCM 服务器"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = HTTPServer(("127.0.0.1", 0), FXCMTestServer)
+        cls.port = cls.server.server_address[1]
+        cls.thread = Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+
+    def test_download_and_parse(self):
+        """完整流程: 下载 → 解压 → 解析 → 展示"""
+        url = f"http://127.0.0.1:{self.port}/H1/EURUSD/2020/1.csv.gz"
+        rows = demo.download_candle_data(url)
+        self.assertEqual(len(rows), 8)
+
+        candles = demo.parse_candle_rows(rows)
+        self.assertEqual(len(candles), 8)
+        self.assertAlmostEqual(candles[0]["bid_open"], 1.11580)
+
         with patch("sys.stdout", new_callable=io.StringIO) as out:
-            rates = demo.query_history("USD", "EUR", "2025-01-01", "2025-01-01")
+            count = demo.display_candles(candles, "EURUSD", "H1")
+        self.assertEqual(count, 8)
+        self.assertIn("EURUSD", out.getvalue())
 
-        self.assertEqual(rates, {})
-        self.assertIn("无数据", out.getvalue())
-
-
-class TestListCurrencies(unittest.TestCase):
-    """测试货币列表"""
-
-    @patch("demo.api_request")
-    def test_list(self, mock_api):
-        mock_api.return_value = {
-            "USD": "United States Dollar",
-            "EUR": "Euro",
-            "CNY": "Chinese Renminbi",
-        }
-        with patch("sys.stdout", new_callable=io.StringIO) as out:
-            demo.list_currencies()
-
-        mock_api.assert_called_once_with("currencies")
+    def test_full_main_flow(self):
+        """测试 main() 完整流程"""
+        test_url = f"http://127.0.0.1:{self.port}"
+        with patch.object(demo, "CANDLE_BASE_URL", test_url):
+            with patch("sys.stdout", new_callable=io.StringIO) as out:
+                demo.main(["-s", "EURUSD", "-p", "D1", "-y", "2020"])
         output = out.getvalue()
-        self.assertIn("共 3 种", output)
-        self.assertIn("CNY", output)
-        self.assertIn("Chinese Renminbi", output)
+        self.assertIn("EURUSD", output)
+        self.assertIn("1.11580", output)
+        self.assertIn("查询完成", output)
 
-
-class TestMain(unittest.TestCase):
-    """测试 main 入口"""
-
-    @patch("demo.query_latest")
-    def test_main_default(self, mock_query):
-        mock_query.return_value = {}
+    def test_404_handling(self):
+        """测试 404 错误处理"""
+        url = f"http://127.0.0.1:{self.port}/H1/INVALID/2020/1.csv.gz"
         with patch("sys.stdout", new_callable=io.StringIO):
-            demo.main([])
-        mock_query.assert_called_once_with("USD", demo.DEFAULT_TARGETS, None)
+            rows = demo.download_candle_data(url)
+        self.assertEqual(rows, [])
 
-    @patch("demo.query_latest")
-    def test_main_with_amount(self, mock_query):
-        mock_query.return_value = {}
-        with patch("sys.stdout", new_callable=io.StringIO):
-            demo.main(["-b", "EUR", "-t", "USD", "-a", "100"])
-        mock_query.assert_called_once_with("EUR", "USD", 100.0)
-
-    @patch("demo.list_currencies")
-    def test_main_list(self, mock_list):
-        with patch("sys.stdout", new_callable=io.StringIO):
+    def test_list_symbols(self):
+        """测试货币对列表"""
+        with patch("sys.stdout", new_callable=io.StringIO) as out:
             demo.main(["--list"])
-        mock_list.assert_called_once()
+        output = out.getvalue()
+        self.assertIn("EUR/USD", output)
+        self.assertIn("USD/JPY", output)
+        self.assertIn(str(len(demo.SYMBOLS)), output)
 
-    @patch("demo.query_history")
-    def test_main_history(self, mock_hist):
-        mock_hist.return_value = {}
-        with patch("sys.stdout", new_callable=io.StringIO):
-            demo.main(["--history", "2025-01-01", "2025-01-31"])
-        mock_hist.assert_called_once_with(
-            "USD", demo.DEFAULT_TARGETS, "2025-01-01", "2025-01-31"
-        )
+    def test_invalid_symbol(self):
+        """测试无效货币对"""
+        with self.assertRaises(SystemExit):
+            with patch("sys.stdout", new_callable=io.StringIO):
+                demo.main(["-s", "XXXYYY"])
+
+
+class TestListSymbols(unittest.TestCase):
+    """测试货币对列表展示"""
+
+    def test_output(self):
+        with patch("sys.stdout", new_callable=io.StringIO) as out:
+            demo.list_symbols()
+        output = out.getvalue()
+        self.assertIn("EUR/USD", output)
+        self.assertIn(str(len(demo.SYMBOLS)), output)
 
 
 if __name__ == "__main__":
