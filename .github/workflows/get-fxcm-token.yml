@@ -179,41 +179,110 @@ jobs:
                       page.screenshot(path="screenshot_3_after_login.png")
                       p("Screenshot 3 saved (after login)")
 
-                      # Look for Token Management
+                      # Check if login succeeded by looking for account data
+                      page_text = page.inner_text("body")
+                      if "EQUITY" in page_text or "Equity" in page_text:
+                          p("\nLOGIN SUCCESSFUL! Account data visible.")
+                      else:
+                          p("\nLogin may have failed. Page text:")
+                          p(page_text[:1000])
+
+                      # Find Token Management - try account menu in top right
                       p("\n--- Looking for Token Management ---")
-                      token_selectors = [
+
+                      # First dump all clickable elements to find the menu
+                      import re
+                      all_buttons = page.query_selector_all("button, a, [role='button'], [role='menuitem']")
+                      p(f"Found {len(all_buttons)} clickable elements")
+                      for btn in all_buttons:
+                          try:
+                              txt = (btn.text_content() or "").strip()[:80]
+                              if txt and btn.is_visible():
+                                  p(f"  Clickable: '{txt}'")
+                          except:
+                              pass
+
+                      # Look for user/account menu icon (usually top-right)
+                      menu_selectors = [
+                          'text=Token Management',
                           'text=Token',
-                          'text=token',
-                          'text=API',
-                          'a:has-text("Token")',
-                          '[class*="token" i]',
-                          '[class*="account" i]',
+                          '[aria-label*="user" i]',
+                          '[aria-label*="account" i]',
+                          '[aria-label*="menu" i]',
+                          '[aria-label*="settings" i]',
+                          '[class*="user-menu" i]',
+                          '[class*="avatar" i]',
+                          '[class*="profile" i]',
+                          'text=Settings',
+                          'text=Account',
                           'text=User Account',
+                          'svg[class*="user" i]',
+                          'img[alt*="user" i]',
+                          # FXCM-specific: account number in top area
+                          f'text=03528078',
+                          f'text=D103538926',
                       ]
 
-                      for sel in token_selectors:
+                      for sel in menu_selectors:
                           try:
                               el = page.query_selector(sel)
                               if el and el.is_visible():
-                                  p(f"Found element: {sel} -> {el.text_content()[:100]}")
+                                  p(f"\nClicking menu: {sel} -> '{(el.text_content() or '')[:60]}'")
                                   el.click()
-                                  time.sleep(3)
-                                  page.screenshot(path="screenshot_4_token_page.png")
-                                  p("Screenshot 4 saved (token page)")
-                                  break
-                          except Exception as e:
+                                  time.sleep(2)
+                                  page.screenshot(path="screenshot_4_menu.png")
+                                  p("Screenshot 4 saved")
+
+                                  # Check for Token option in dropdown
+                                  after_text = page.inner_text("body")
+                                  if "token" in after_text.lower():
+                                      p("TOKEN found in page after click!")
+                                      p(after_text[:2000])
+
+                                      # Try to click Token Management
+                                      token_link = page.query_selector('text=Token Management') or page.query_selector('text=Token')
+                                      if token_link:
+                                          token_link.click()
+                                          time.sleep(3)
+                                          page.screenshot(path="screenshot_5_token_mgmt.png")
+                                          p("Screenshot 5 saved (Token Management page)")
+                                          token_page = page.inner_text("body")
+                                          p(f"Token page text:\n{token_page[:3000]}")
+
+                                          # Extract token
+                                          tokens = re.findall(r'[a-f0-9]{30,}', page.content())
+                                          if tokens:
+                                              p(f"\n*** TOKEN FOUND: {tokens[0]} ***")
+                                          break
+                          except:
                               pass
 
-                      # Look for any token value on the page
-                      page_text = page.content()
-                      import re
-                      tokens = re.findall(r'[a-f0-9]{30,}', page_text)
+                      # Also scan full HTML for token patterns
+                      full_html = page.content()
+                      tokens = re.findall(r'[a-f0-9]{30,}', full_html)
                       if tokens:
-                          p(f"\nPOSSIBLE TOKENS FOUND: {tokens[:5]}")
+                          p(f"\nTokens in HTML: {tokens[:5]}")
 
-                      # Also check for token in any visible text
-                      all_text = page.inner_text("body")
-                      p(f"\nPage text (first 2000 chars):\n{all_text[:2000]}")
+                      # Try direct navigation to token management URL
+                      p("\n--- Trying direct URL for token management ---")
+                      possible_urls = [
+                          "https://app.fxcm.com/desktop/token",
+                          "https://app.fxcm.com/desktop/settings",
+                          "https://app.fxcm.com/desktop/account",
+                          "https://app.fxcm.com/desktop/api",
+                      ]
+                      for url in possible_urls:
+                          try:
+                              page.goto(url, timeout=15000)
+                              time.sleep(2)
+                              p(f"[{page.url}] -> title: {page.title()}")
+                              txt = page.inner_text("body")[:500]
+                              p(f"  Content: {txt}")
+                              tokens = re.findall(r'[a-f0-9]{30,}', page.content())
+                              if tokens:
+                                  p(f"  *** TOKEN: {tokens[0]} ***")
+                          except Exception as e:
+                              p(f"  Error: {e}")
 
                   else:
                       p("Could not find login form!")
