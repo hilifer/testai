@@ -22,82 +22,46 @@ Current URL after login: https://app.fxcm.com/desktop/login
 Title: FXCM
 Screenshot 3 saved (after login)
 
-LOGIN SUCCESSFUL! Account data visible.
+LOGIN SUCCESSFUL!
 
---- Looking for Token Management ---
-Found 125 clickable elements
-  Clickable: '1-Click OFF'
-  Clickable: '03528078'
-  Clickable: 'Trading'
-  Clickable: 'Portfolio'
-  Clickable: 'Research'
-  Clickable: 'Charts'
-  Clickable: 'View Report'
-  Clickable: 'Open Positions (21)'
-  Clickable: 'Orders (0)'
-  Clickable: 'Closed Positions (6)'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
-  Clickable: 'HKG33'
+--- Capturing auth data ---
 
-Clicking menu: text=Account -> 'Account'
-Screenshot 4 saved
+Cookies (8):
+  BIGipServerot5MxO+J3W1ofPE8kuwnzg=!cH2jR0HMpSnZvVydeSKc+rOl63aid5zUA7usIAEtVNH42J75z7BWmZxN4b0gZt8wCHpIeI0eSHxrig=... (domain=app.fxcm.com)
+  cf_clearance=9LQViNBde2Poz3ZGoOnyuLylON3omiiBpjBTjxpKzTM-1776151382-1.2.1.1-4NIcEnMcsCKAeAqEf... (domain=.fxcm.com)
+  __cf_bm=1h.WPIe7BI96pnDQpAIS8WsqoEgXIFw1xvJydWX1vjU-1776151382.6078258-1.0.1.1-hR.8B0eSl... (domain=.fxcm.com)
+  BIGipServerdBqqZZG7z2X/u17GOL30Jg=!wajuFO6T6PGBQ5WdeSKc+rOl63aid/ZtZ12fKCQpfc8Zho1nYh6hjUl6cm45J0CQCYRwisMJOJSfiA=... (domain=endpoints.fxcm.com)
+  _cfuvid=YuFvVAixeYdecehQiUl6gVDiN_PIS7Z1CaW1b8lvBDU-1776151382.747457-1.0.1.1-5pOE0VenHp... (domain=.fxcm.com)
+  BIGipServerTEfHyWndy8teGDg1NAcfSA=!zN1p8ENAOKHz6OudeSKc+rOl63aid0QHF5kitVJr8uqBbI+Si+Ud832CXgh9HppxwNKpqRZ2hiAY6A=... (domain=endpoints-demo.fxcm.com)
+  refresh-token=eyJraWQiOiJyZWZyZXNoXzAiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJEMTAzNTM... (domain=.fxcm.com)
+  XSRF-TOKEN=10d79703-6b84-4f66-aab7-d7fe7107e9fc... (domain=.fxcm.com)
 
-Clicking menu: text=03528078 -> '03528078'
-Screenshot 4 saved
+LocalStorage:
+  loglevel: SILENT
+  user-settings-desktop-D103538926: {"theme":"dark","language":{"isoLanguage":"en","fxcmLanguage":"enu","direction":"ltr","languageLabel":"English","enabled":true},"region":"LOCAL"}
+  app-settings-desktop: {"language":{"isoLanguage":"zh","extendedFXCMCode":"zh_CN","fxcmLanguage":"chs","direction":"ltr","languageLabel":"中文 (简体)","enabled":true},"accountType":"demo","userName":"86071919"}
 
---- Trying direct URL for token management ---
-[https://app.fxcm.com/desktop/token] -> title: Just a moment...
-  Content: app.fxcm.com
-Performing security verification
+SessionStorage:
 
-This website uses a security service to protect against malicious bots. This page is displayed while the website verifies you are not a bot.
+Checking JS globals for tokens...
+  document.cookie = XSRF-TOKEN=10d79703-6b84-4f66-aab7-d7fe7107e9fc
 
-Ray ID: 9ec0afe5be27e826
-Performance and Security by Cloudflare
-Privacy
-[https://app.fxcm.com/desktop/settings] -> title: Just a moment...
-  Content: app.fxcm.com
-Performing security verification
+--- Intercepting network requests ---
 
-This website uses a security service to protect against malicious bots. This page is displayed while the website verifies you are not a bot.
-
-Ray ID: 9ec0aff31920e826
-Performance and Security by Cloudflare
-Privacy
-[https://app.fxcm.com/desktop/account] -> title: Just a moment...
-  Content: app.fxcm.com
-Performing security verification
-
-This website uses a security service to protect against malicious bots. This page is displayed while the website verifies you are not a bot.
-
-Ray ID: 9ec0b0003ccee826
-Performance and Security by Cloudflare
-Privacy
-[https://app.fxcm.com/desktop/api] -> title: Just a moment...
-  Content: app.fxcm.com
-Performing security verification
-
-This website uses a security service to protect against malicious bots. This page is displayed while the website verifies you are not a bot.
-
-Ray ID: 9ec0b00d58b6e826
-Performance and Security by Cloudflare
-Privacy
+ERROR: Timeout 15000ms exceeded.
+Traceback (most recent call last):
+  File "<stdin>", line 225, in <module>
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/playwright/sync_api/_generated.py", line 9152, in wait_for_load_state
+    self._sync(self._impl_obj.wait_for_load_state(state=state, timeout=timeout))
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/playwright/_impl/_sync_base.py", line 115, in _sync
+    return task.result()
+           ^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/playwright/_impl/_page.py", line 572, in wait_for_load_state
+    return await self._main_frame.wait_for_load_state(**locals_to_params(locals()))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/playwright/_impl/_frame.py", line 273, in wait_for_load_state
+    return await self._wait_for_load_state_impl(state, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/playwright/_impl/_frame.py", line 301, in _wait_for_load_state_impl
+    await waiter.result()
+playwright._impl._errors.TimeoutError: Timeout 15000ms exceeded.
