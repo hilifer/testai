@@ -1,0 +1,173 @@
+name: Register FXCM Demo Account
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/fix-demo-database-b3FtT]
+    paths:
+      - '.github/workflows/register-fxcm.yml'
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Step 1 - Create temp email via mail.tm
+        id: email
+        run: |
+          python3 << 'PYEOF'
+          import requests, json, random, string, os
+
+          # Get available domains
+          resp = requests.get("https://api.mail.tm/domains")
+          domains = resp.json()
+          if "hydra:member" in domains:
+              domain = domains["hydra:member"][0]["domain"]
+          else:
+              domain = domains[0]["domain"]
+          print(f"Domain: {domain}")
+
+          # Generate random username
+          username = "fxcmtest" + "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+          email = f"{username}@{domain}"
+          password = "Test" + "".join(random.choices(string.ascii_letters + string.digits, k=12)) + "!1"
+
+          print(f"Email: {email}")
+          print(f"Password: {password}")
+
+          # Create account
+          resp = requests.post("https://api.mail.tm/accounts", json={
+              "address": email,
+              "password": password
+          })
+          print(f"Create account status: {resp.status_code}")
+          print(f"Response: {resp.text}")
+
+          if resp.status_code in [200, 201]:
+              # Get auth token
+              resp2 = requests.post("https://api.mail.tm/token", json={
+                  "address": email,
+                  "password": password
+              })
+              print(f"Token status: {resp2.status_code}")
+              token_data = resp2.json()
+              mail_token = token_data.get("token", "")
+
+              # Save to env
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"email={email}\n")
+                  f.write(f"password={password}\n")
+                  f.write(f"mail_token={mail_token}\n")
+              print("Temp email created successfully!")
+          else:
+              print("Failed to create temp email")
+              exit(1)
+          PYEOF
+
+      - name: Step 2 - Attempt FXCM demo registration
+        id: fxcm
+        run: |
+          python3 << 'PYEOF'
+          import requests, json, os, time
+
+          email = "${{ steps.email.outputs.email }}"
+          print(f"Using email: {email}")
+
+          # Try to access FXCM demo registration page
+          session = requests.Session()
+          session.headers.update({"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0"})
+
+          # Check if registration page is accessible
+          urls_to_try = [
+              "https://www.fxcm.com/markets/open-demo/",
+              "https://www.fxcm.com/uk/forex-trading-demo/",
+              "https://www.fxcm.com/eu/platforms/trading-station/free-demo/",
+              "https://www.fxcm-markets.com/forex-trading-demo/",
+          ]
+
+          for url in urls_to_try:
+              try:
+                  resp = session.get(url, timeout=15)
+                  print(f"[{resp.status_code}] {url}")
+                  if resp.status_code == 200:
+                      # Look for form action or API endpoints
+                      text = resp.text
+                      import re
+                      forms = re.findall(r'<form[^>]*action=["\']([^"\']*)["\']', text)
+                      apis = re.findall(r'https?://[^\s"\'<>]*api[^\s"\'<>]*', text)
+                      submits = re.findall(r'https?://[^\s"\'<>]*(?:register|signup|demo|account)[^\s"\'<>]*', text)
+                      print(f"  Forms: {forms[:5]}")
+                      print(f"  APIs: {list(set(apis))[:10]}")
+                      print(f"  Submits: {list(set(submits))[:10]}")
+
+                      # Save a snippet of the page
+                      if "form" in text.lower():
+                          # Find form elements
+                          inputs = re.findall(r'<input[^>]*name=["\']([^"\']*)["\']', text)
+                          print(f"  Input fields: {inputs[:20]}")
+              except Exception as e:
+                  print(f"[ERROR] {url}: {e}")
+
+          # Try common FXCM API registration endpoints
+          api_urls = [
+              "https://www.fxcm.com/api/demo-account",
+              "https://www.fxcm.com/api/register",
+              "https://api.fxcm.com/register",
+              "https://tradingstation.fxcm.com/api/register",
+          ]
+
+          for url in api_urls:
+              try:
+                  resp = session.post(url, json={
+                      "firstName": "Test",
+                      "lastName": "User",
+                      "email": email,
+                      "country": "US",
+                      "phone": "+12025551234",
+                  }, timeout=10)
+                  print(f"\n[{resp.status_code}] POST {url}")
+                  print(f"  Response: {resp.text[:500]}")
+              except Exception as e:
+                  print(f"[ERROR] POST {url}: {e}")
+
+          PYEOF
+
+      - name: Step 3 - Check inbox for verification email
+        if: always()
+        run: |
+          python3 << 'PYEOF'
+          import requests, time, json
+
+          mail_token = "${{ steps.email.outputs.mail_token }}"
+          if not mail_token:
+              print("No mail token, skipping")
+              exit(0)
+
+          headers = {"Authorization": f"Bearer {mail_token}"}
+
+          for i in range(6):
+              print(f"\nCheck {i+1}/6...")
+              resp = requests.get("https://api.mail.tm/messages", headers=headers)
+              messages = resp.json()
+              items = messages.get("hydra:member", [])
+              print(f"  Messages: {len(items)}")
+              for msg in items:
+                  print(f"  From: {msg.get('from', {}).get('address', 'N/A')}")
+                  print(f"  Subject: {msg.get('subject', 'N/A')}")
+                  # Get full message
+                  msg_resp = requests.get(f"https://api.mail.tm/messages/{msg['id']}", headers=headers)
+                  full = msg_resp.json()
+                  print(f"  Body: {full.get('text', '')[:500]}")
+              if items:
+                  break
+              time.sleep(10)
+          PYEOF
