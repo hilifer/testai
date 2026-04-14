@@ -3,7 +3,12 @@ ToolBox Pro - FXCM REST API Demo Script (基于 fxcmpy)
 用法: python demo.py -t YOUR_ACCESS_TOKEN -s demo|real
 
 安装依赖: pip install fxcmpy
-获取 Access Token: 登录 FXCM Trading Station → 菜单 → Token Management
+获取 Access Token:
+  1. 注册 FXCM Demo 账户: https://www.fxcm.com/uk/forex-trading-demo/
+  2. 登录 Trading Station Web: https://tradingstation.fxcm.com/
+  3. 点击 User Account → Token Management → 生成 Token
+  4. Demo 账户默认已开通 REST API;
+     Live 账户需发邮件至 api@fxcm.com 申请开通
 """
 
 import argparse
