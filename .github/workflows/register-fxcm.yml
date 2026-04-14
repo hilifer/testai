@@ -180,10 +180,21 @@ jobs:
           p("\nResults saved to fxcm_registration_log.txt")
           PYEOF
 
-      - name: Commit results
+      - name: Upload results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fxcm-registration-log
+          path: fxcm_registration_log.txt
+
+      - name: Post results to repo via GitHub API
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "Claude"
-          git config user.email "noreply@anthropic.com"
-          git add fxcm_registration_log.txt
-          git commit -m "ci: FXCM registration attempt results" || echo "No changes"
-          git push origin claude/fix-demo-database-b3FtT || echo "Push failed"
+          # Create the file content
+          CONTENT=$(base64 -w 0 fxcm_registration_log.txt)
+          # Try to create file via API
+          curl -s -X PUT \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/fxcm_registration_log.txt" \
+            -d "{\"message\":\"ci: FXCM registration results\",\"content\":\"$CONTENT\",\"branch\":\"claude/fix-demo-database-b3FtT\"}"
