@@ -1,0 +1,51 @@
+============================================================
+STEP 1: Open Trading Station Web
+============================================================
+Navigating to tradingstation.fxcm.com...
+Current URL: https://app.fxcm.com/desktop/login
+Title: FXCM
+Screenshot 1 saved
+
+Looking for login form...
+Found login input: input[name="username"]
+Found password input: input[name="password"]
+
+--- Filling login form ---
+Screenshot 2 saved (form filled)
+Clicking submit: button[type="submit"]
+Waiting for login response...
+Current URL after login: https://app.fxcm.com/desktop/login
+Title: FXCM
+Screenshot 3 saved (after login)
+
+--- Looking for Token Management ---
+Found element: text=API -> API 1.7.1
+
+Page text (first 2000 chars):
+English
+LIVE
+Demo
+Live
+
+Don't have a live account? Click here to register
+
+Username
+Username
+Password
+Password
+Sign in to Live
+
+We value your comments and suggestions, please submit any feedback or feature requests for the platform here.
+
+Privacy Policy
+Version 2.1.0    API 1.7.1
+
+Demo Account: Although demo accounts attempt to replicate real markets, they operate in a simulated market environment. As such, there are key differences that distinguish them from real accounts; including but not limited to, the lack of dependence on real-time market liquidity, a delay in pricing, and the availability of some products which may not be tradable on live accounts. The operational capabilities when executing orders in a demo environment may result in atypically, expedited transactions; lack of rejected orders; and/or the absence of slippage. There may be instances where margin requirements differ from those of live accounts as updates to demo accounts may not always coincide with those of real accounts.
+
+Charts are for indicative use only. Prices are throttled up to 2 quotes per second, so may differ from the real time pricing used for execution.
+
+Forex Capital Markets Limited (www.fxcm.com/uk): CFDs are complex instruments and come with a high risk of losing money rapidly due to leverage. 67% of retail investor accounts lose money when trading CFDs with this provider. You should consider whether you understand how CFDs work and whether you can afford to take the high risk of losing your money.
+
+FXCM EU LTD (www.fxcm.com/eu): CFDs are complex instruments and come with a high risk of losing money rapidly due to leverage. 68% of retail investor accounts lose money when trading CFDs with this provider. You should consider whether you understand how CFDs work and whether you can afford to take the high risk of losing your money.
+
+FXCM Australia Pty. Limited(www.fxcm.com/au): Our service includes products that are traded on margin and carry a risk of total loss of your deposited 
