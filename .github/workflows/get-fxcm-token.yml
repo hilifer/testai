@@ -179,110 +179,122 @@ jobs:
                       page.screenshot(path="screenshot_3_after_login.png")
                       p("Screenshot 3 saved (after login)")
 
-                      # Check if login succeeded by looking for account data
+                      # Check login
                       page_text = page.inner_text("body")
                       if "EQUITY" in page_text or "Equity" in page_text:
-                          p("\nLOGIN SUCCESSFUL! Account data visible.")
+                          p("\nLOGIN SUCCESSFUL!")
                       else:
-                          p("\nLogin may have failed. Page text:")
-                          p(page_text[:1000])
+                          p("\nLogin may have failed.")
+                          p(page_text[:500])
 
-                      # Find Token Management - try account menu in top right
-                      p("\n--- Looking for Token Management ---")
-
-                      # First dump all clickable elements to find the menu
                       import re
-                      all_buttons = page.query_selector_all("button, a, [role='button'], [role='menuitem']")
-                      p(f"Found {len(all_buttons)} clickable elements")
-                      for btn in all_buttons:
+
+                      # CAPTURE ALL AUTH DATA
+                      p("\n--- Capturing auth data ---")
+
+                      # 1. Cookies
+                      cookies = context.cookies()
+                      p(f"\nCookies ({len(cookies)}):")
+                      for c in cookies:
+                          p(f"  {c['name']}={c['value'][:80]}... (domain={c['domain']})")
+
+                      # 2. LocalStorage & SessionStorage
+                      p("\nLocalStorage:")
+                      ls = page.evaluate("() => { let d={}; for(let i=0;i<localStorage.length;i++){let k=localStorage.key(i); d[k]=localStorage.getItem(k);} return d; }")
+                      for k, v in ls.items():
+                          p(f"  {k}: {str(v)[:200]}")
+
+                      p("\nSessionStorage:")
+                      ss = page.evaluate("() => { let d={}; for(let i=0;i<sessionStorage.length;i++){let k=sessionStorage.key(i); d[k]=sessionStorage.getItem(k);} return d; }")
+                      for k, v in ss.items():
+                          p(f"  {k}: {str(v)[:200]}")
+
+                      # 3. Look for tokens in JS variables
+                      p("\nChecking JS globals for tokens...")
+                      js_checks = [
+                          "window.__FXCM_TOKEN__",
+                          "window.accessToken",
+                          "window.token",
+                          "window.__SESSION__",
+                          "window.__AUTH__",
+                          "document.cookie",
+                      ]
+                      for js in js_checks:
                           try:
-                              txt = (btn.text_content() or "").strip()[:80]
-                              if txt and btn.is_visible():
-                                  p(f"  Clickable: '{txt}'")
+                              val = page.evaluate(f"() => {{ try {{ return {js} }} catch(e) {{ return null }} }}")
+                              if val:
+                                  p(f"  {js} = {str(val)[:300]}")
                           except:
                               pass
 
-                      # Look for user/account menu icon (usually top-right)
-                      menu_selectors = [
-                          'text=Token Management',
-                          'text=Token',
-                          '[aria-label*="user" i]',
-                          '[aria-label*="account" i]',
-                          '[aria-label*="menu" i]',
-                          '[aria-label*="settings" i]',
-                          '[class*="user-menu" i]',
-                          '[class*="avatar" i]',
-                          '[class*="profile" i]',
-                          'text=Settings',
-                          'text=Account',
-                          'text=User Account',
-                          'svg[class*="user" i]',
-                          'img[alt*="user" i]',
-                          # FXCM-specific: account number in top area
-                          f'text=03528078',
-                          f'text=D103538926',
+                      # 4. Intercept network requests - reload page and capture
+                      p("\n--- Intercepting network requests ---")
+                      captured = []
+                      def handle_request(request):
+                          url = request.url
+                          headers = request.headers
+                          if "fxcm" in url or "api" in url or "auth" in url or "token" in url:
+                              entry = {"url": url, "method": request.method}
+                              for h in ["authorization", "x-access-token", "x-auth-token", "bearer", "cookie"]:
+                                  if h in headers:
+                                      entry[h] = headers[h][:200]
+                              captured.append(entry)
+
+                      def handle_response(response):
+                          url = response.url
+                          if "token" in url.lower() or "auth" in url.lower() or "session" in url.lower():
+                              try:
+                                  body = response.text()
+                                  captured.append({"resp_url": url, "status": response.status, "body": body[:500]})
+                              except:
+                                  pass
+
+                      page.on("request", handle_request)
+                      page.on("response", handle_response)
+
+                      # Navigate back to main page to trigger API calls
+                      page.goto("https://app.fxcm.com/desktop/", timeout=30000)
+                      time.sleep(8)
+                      page.wait_for_load_state("networkidle", timeout=15000)
+
+                      p(f"\nCaptured {len(captured)} API requests:")
+                      for c in captured:
+                          p(f"  {json.dumps(c)[:300]}")
+
+                      # 5. Scan all cookies/storage for token-like values
+                      p("\n--- Scanning for access tokens ---")
+                      all_values = []
+                      for c in cookies:
+                          all_values.append(("cookie:" + c["name"], c["value"]))
+                      for k, v in ls.items():
+                          all_values.append(("ls:" + k, str(v)))
+                      for k, v in ss.items():
+                          all_values.append(("ss:" + k, str(v)))
+
+                      for name, val in all_values:
+                          tokens = re.findall(r'[a-f0-9]{30,}', val)
+                          if tokens:
+                              p(f"\n*** POSSIBLE TOKEN in {name}: {tokens[0]} ***")
+
+                      # 6. Try using captured session to call FXCM REST API directly
+                      p("\n--- Testing FXCM REST API with captured session ---")
+                      import requests as req_lib
+                      session = req_lib.Session()
+                      for c in cookies:
+                          session.cookies.set(c["name"], c["value"], domain=c["domain"])
+
+                      api_urls = [
+                          "https://api-demo.fxcm.com:443/socket.io/?EIO=3&transport=polling",
+                          "https://tradingstation.fxcm.com/api/account",
                       ]
-
-                      for sel in menu_selectors:
+                      for url in api_urls:
                           try:
-                              el = page.query_selector(sel)
-                              if el and el.is_visible():
-                                  p(f"\nClicking menu: {sel} -> '{(el.text_content() or '')[:60]}'")
-                                  el.click()
-                                  time.sleep(2)
-                                  page.screenshot(path="screenshot_4_menu.png")
-                                  p("Screenshot 4 saved")
-
-                                  # Check for Token option in dropdown
-                                  after_text = page.inner_text("body")
-                                  if "token" in after_text.lower():
-                                      p("TOKEN found in page after click!")
-                                      p(after_text[:2000])
-
-                                      # Try to click Token Management
-                                      token_link = page.query_selector('text=Token Management') or page.query_selector('text=Token')
-                                      if token_link:
-                                          token_link.click()
-                                          time.sleep(3)
-                                          page.screenshot(path="screenshot_5_token_mgmt.png")
-                                          p("Screenshot 5 saved (Token Management page)")
-                                          token_page = page.inner_text("body")
-                                          p(f"Token page text:\n{token_page[:3000]}")
-
-                                          # Extract token
-                                          tokens = re.findall(r'[a-f0-9]{30,}', page.content())
-                                          if tokens:
-                                              p(f"\n*** TOKEN FOUND: {tokens[0]} ***")
-                                          break
-                          except:
-                              pass
-
-                      # Also scan full HTML for token patterns
-                      full_html = page.content()
-                      tokens = re.findall(r'[a-f0-9]{30,}', full_html)
-                      if tokens:
-                          p(f"\nTokens in HTML: {tokens[:5]}")
-
-                      # Try direct navigation to token management URL
-                      p("\n--- Trying direct URL for token management ---")
-                      possible_urls = [
-                          "https://app.fxcm.com/desktop/token",
-                          "https://app.fxcm.com/desktop/settings",
-                          "https://app.fxcm.com/desktop/account",
-                          "https://app.fxcm.com/desktop/api",
-                      ]
-                      for url in possible_urls:
-                          try:
-                              page.goto(url, timeout=15000)
-                              time.sleep(2)
-                              p(f"[{page.url}] -> title: {page.title()}")
-                              txt = page.inner_text("body")[:500]
-                              p(f"  Content: {txt}")
-                              tokens = re.findall(r'[a-f0-9]{30,}', page.content())
-                              if tokens:
-                                  p(f"  *** TOKEN: {tokens[0]} ***")
+                              resp = session.get(url, timeout=10,
+                                  headers={"User-Agent": "Mozilla/5.0"})
+                              p(f"[{resp.status_code}] GET {url}")
+                              p(f"  Body: {resp.text[:300]}")
                           except Exception as e:
-                              p(f"  Error: {e}")
+                              p(f"[ERROR] {url}: {e}")
 
                   else:
                       p("Could not find login form!")
