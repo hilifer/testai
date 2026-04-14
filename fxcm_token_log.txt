@@ -22,342 +22,82 @@ Current URL after login: https://app.fxcm.com/desktop/login
 Title: FXCM
 Screenshot 3 saved (after login)
 
+LOGIN SUCCESSFUL! Account data visible.
+
 --- Looking for Token Management ---
-Found element: [class*="account" i] -> 75.60%
-Screenshot 4 saved (token page)
-
-Page text (first 2000 chars):
-1-Click OFF
-EQUITY
-
-USD 43,915.47
-
-Equity
-
-MARGIN
-
-10,639.20
-
-Used
-
-33,276.27
-
-Usable
-
-75.77%
- 
-
-% Usable
-
-PROFIT & LOSS
-
--6,371.87
-
-Day
-
--USD 6,058.77
-
-Gross
-
-DEMO
-03528078
-Trading
-Portfolio
-Research
-Charts
-CUSTOM REPORT
-
-View or download reports of your historical trading records
-
-ACCOUNT
-
-03528078
-​
-
-FROM
-
-​
-Since Open
-
-TO
-
-​
-Up to now
-
-FORMAT
-
-HTML
-​
-VIEW REPORT
-
-OPEN POSITIONS (21)
-
-ORDERS (0)
-
-CLOSED POSITIONS (6)
-
-Ticket
-Symbol
-Amount
-S/B
-P/L in Pips
-Gross P/L
-Open
-Close
-Stop
-Stop Move
-Limit
-Used Margin
-Rollover
-224289950
-HKG33
-1
-S
--17.51
--2.24
-25,795.89
-
-25,813.40
-
-8.80
-0.00
-224289821
-HKG33
-100
-S
--108.51
--1,385.32
-25,704.89
-
-25,813.40
-
-880.00
-0.00
-224289853
-HKG33
-100
-S
--79.51
--1,015.08
-25,733.89
-
-25,813.40
-
-880.00
-0.00
-224289947
-HKG33
-1
-S
--15.00
--1.92
-25,798.40
-
-25,813.40
-
-8.80
-0.00
-224289944
-HKG33
-1
-S
--16.00
--2.04
-25,797.40
-
-25,813.40
-
-8.80
-0.00
-224289945
-HKG33
-1
-S
--15.01
--1.92
-25,798.39
-
-25,813.40
-
-8.80
-0.00
-224289977
-HKG33
-100
-S
--20.50
--261.72
-25,792.90
-
-25,813.40
-
-880.00
-0.00
-224289942
-HKG33
-1
-S
--16.02
--2.05
-25,797.38
-
-25,813.40
-
-8.80
-0.00
-224289847
-HKG33
-100
-S
--95.52
--1,219.48
-25,717.88
-
-25,813.40
-
-880.00
-0.00
-224289943
-HKG33
-1
-S
--15.52
--1.98
-25,797.88
-
-25,813.40
-
-8.80
-0.00
-224289975
-HKG33
-100
-S
--18.51
--236.31
-25,794.89
-
-25,813.40
-
-880.00
-0.00
-224289972
-HKG33
-100
-S
--15.51
--198.01
-25,797.89
-
-25,813.40
-
-880.00
-0.00
-224289941
-HKG33
-1
-S
--17.01
--2.17
-25,796.39
-
-25,813.40
-
-8.80
-0.00
-224289973
-HKG33
-100
-S
--17.52
--223.67
-25,795.88
-
-25,813.40
-
-880.00
-0.00
-224289971
-HKG33
-100
-S
--15.01
--191.63
-25,798.39
-
-25,813.40
-
-880.00
-0.00
-224289968
-HKG33
-100
-S
--15.52
--198.14
-25,797.88
-
-25,813.40
-
-880.00
-0.00
-224289969
-HKG33
-100
-S
--16.01
--204.40
-25,797.39
-
-25,813.40
-
-880.00
-0.00
-224289966
-HKG33
-100
-S
--15.02
--191.76
-25,798.38
-
-25,813.40
-
-880.00
-0.00
-224289860
-HKG33
-100
-S
--50.01
--638.46
-25,763.39
-
-25,813.40
-
-880.00
-0.00
-224289952
-HKG33
-1
-S
--18.51
--2.36
-25,794.89
-
-25,813.40
-
-8.80
-0.00
-224289953
-HKG33
-1
-S
--19.52
--2.49
-25,793.88
-
-25,813.40
-
-8.80
-0.00
+Found 125 clickable elements
+  Clickable: '1-Click OFF'
+  Clickable: '03528078'
+  Clickable: 'Trading'
+  Clickable: 'Portfolio'
+  Clickable: 'Research'
+  Clickable: 'Charts'
+  Clickable: 'View Report'
+  Clickable: 'Open Positions (21)'
+  Clickable: 'Orders (0)'
+  Clickable: 'Closed Positions (6)'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+  Clickable: 'HKG33'
+
+Clicking menu: text=Account -> 'Account'
+Screenshot 4 saved
+
+Clicking menu: text=03528078 -> '03528078'
+Screenshot 4 saved
+
+--- Trying direct URL for token management ---
+[https://app.fxcm.com/desktop/token] -> title: Just a moment...
+  Content: app.fxcm.com
+Performing security verification
+
+This website uses a security service to protect against malicious bots. This page is displayed while the website verifies you are not a bot.
+
+Ray ID: 9ec0afe5be27e826
+Performance and Security by Cloudflare
+Privacy
+[https://app.fxcm.com/desktop/settings] -> title: Just a moment...
+  Content: app.fxcm.com
+Performing security verification
+
+This website uses a security service to protect against malicious bots. This page is displayed while the website verifies you are not a bot.
+
+Ray ID: 9ec0aff31920e826
+Performance and Security by Cloudflare
+Privacy
+[https://app.fxcm.com/desktop/account] -> title: Just a moment...
+  Content: app.fxcm.com
+Performing security verification
+
+This website uses a security service to protect against malicious bots. This page is displayed while the website verifies you are not a bot.
+
+Ray ID: 9ec0b0003ccee826
+Performance and Security by Cloudflare
+Privacy
+[https://app.fxcm.com/desktop/api] -> title: Just a moment...
+  Content: app.fxcm.com
+Performing security verification
+
+This website uses a security service to protect against malicious bots. This page is displayed while the website verifies you are not a bot.
+
+Ray ID: 9ec0b00d58b6e826
+Performance and Security by Cloudflare
+Privacy
