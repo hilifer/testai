@@ -6,46 +6,358 @@ Current URL: https://app.fxcm.com/desktop/login
 Title: FXCM
 Screenshot 1 saved
 
-Looking for login form...
+Switching to Demo tab...
+Clicking Demo tab: text=Demo -> 'Demo'
+Clicking Demo tab: button:has-text("Demo") -> 'Demo'
+Clicking Demo tab: div:has-text("Demo") -> 'Demo'
+Screenshot 1b saved (after Demo tab click)
 Found login input: input[name="username"]
 Found password input: input[name="password"]
 
 --- Filling login form ---
 Screenshot 2 saved (form filled)
-Clicking submit: button[type="submit"]
+Clicking submit: button:has-text("Sign in to Demo")
 Waiting for login response...
 Current URL after login: https://app.fxcm.com/desktop/login
 Title: FXCM
 Screenshot 3 saved (after login)
 
 --- Looking for Token Management ---
-Found element: text=API -> API 1.7.1
+Found element: [class*="account" i] -> 75.60%
+Screenshot 4 saved (token page)
 
 Page text (first 2000 chars):
-English
-LIVE
-Demo
-Live
+1-Click OFF
+EQUITY
 
-Don't have a live account? Click here to register
+USD 43,915.47
 
-Username
-Username
-Password
-Password
-Sign in to Live
+Equity
 
-We value your comments and suggestions, please submit any feedback or feature requests for the platform here.
+MARGIN
 
-Privacy Policy
-Version 2.1.0    API 1.7.1
+10,639.20
 
-Demo Account: Although demo accounts attempt to replicate real markets, they operate in a simulated market environment. As such, there are key differences that distinguish them from real accounts; including but not limited to, the lack of dependence on real-time market liquidity, a delay in pricing, and the availability of some products which may not be tradable on live accounts. The operational capabilities when executing orders in a demo environment may result in atypically, expedited transactions; lack of rejected orders; and/or the absence of slippage. There may be instances where margin requirements differ from those of live accounts as updates to demo accounts may not always coincide with those of real accounts.
+Used
 
-Charts are for indicative use only. Prices are throttled up to 2 quotes per second, so may differ from the real time pricing used for execution.
+33,276.27
 
-Forex Capital Markets Limited (www.fxcm.com/uk): CFDs are complex instruments and come with a high risk of losing money rapidly due to leverage. 67% of retail investor accounts lose money when trading CFDs with this provider. You should consider whether you understand how CFDs work and whether you can afford to take the high risk of losing your money.
+Usable
 
-FXCM EU LTD (www.fxcm.com/eu): CFDs are complex instruments and come with a high risk of losing money rapidly due to leverage. 68% of retail investor accounts lose money when trading CFDs with this provider. You should consider whether you understand how CFDs work and whether you can afford to take the high risk of losing your money.
+75.77%
+ 
 
-FXCM Australia Pty. Limited(www.fxcm.com/au): Our service includes products that are traded on margin and carry a risk of total loss of your deposited 
+% Usable
+
+PROFIT & LOSS
+
+-6,371.87
+
+Day
+
+-USD 6,058.77
+
+Gross
+
+DEMO
+03528078
+Trading
+Portfolio
+Research
+Charts
+CUSTOM REPORT
+
+View or download reports of your historical trading records
+
+ACCOUNT
+
+03528078
+​
+
+FROM
+
+​
+Since Open
+
+TO
+
+​
+Up to now
+
+FORMAT
+
+HTML
+​
+VIEW REPORT
+
+OPEN POSITIONS (21)
+
+ORDERS (0)
+
+CLOSED POSITIONS (6)
+
+Ticket
+Symbol
+Amount
+S/B
+P/L in Pips
+Gross P/L
+Open
+Close
+Stop
+Stop Move
+Limit
+Used Margin
+Rollover
+224289950
+HKG33
+1
+S
+-17.51
+-2.24
+25,795.89
+
+25,813.40
+
+8.80
+0.00
+224289821
+HKG33
+100
+S
+-108.51
+-1,385.32
+25,704.89
+
+25,813.40
+
+880.00
+0.00
+224289853
+HKG33
+100
+S
+-79.51
+-1,015.08
+25,733.89
+
+25,813.40
+
+880.00
+0.00
+224289947
+HKG33
+1
+S
+-15.00
+-1.92
+25,798.40
+
+25,813.40
+
+8.80
+0.00
+224289944
+HKG33
+1
+S
+-16.00
+-2.04
+25,797.40
+
+25,813.40
+
+8.80
+0.00
+224289945
+HKG33
+1
+S
+-15.01
+-1.92
+25,798.39
+
+25,813.40
+
+8.80
+0.00
+224289977
+HKG33
+100
+S
+-20.50
+-261.72
+25,792.90
+
+25,813.40
+
+880.00
+0.00
+224289942
+HKG33
+1
+S
+-16.02
+-2.05
+25,797.38
+
+25,813.40
+
+8.80
+0.00
+224289847
+HKG33
+100
+S
+-95.52
+-1,219.48
+25,717.88
+
+25,813.40
+
+880.00
+0.00
+224289943
+HKG33
+1
+S
+-15.52
+-1.98
+25,797.88
+
+25,813.40
+
+8.80
+0.00
+224289975
+HKG33
+100
+S
+-18.51
+-236.31
+25,794.89
+
+25,813.40
+
+880.00
+0.00
+224289972
+HKG33
+100
+S
+-15.51
+-198.01
+25,797.89
+
+25,813.40
+
+880.00
+0.00
+224289941
+HKG33
+1
+S
+-17.01
+-2.17
+25,796.39
+
+25,813.40
+
+8.80
+0.00
+224289973
+HKG33
+100
+S
+-17.52
+-223.67
+25,795.88
+
+25,813.40
+
+880.00
+0.00
+224289971
+HKG33
+100
+S
+-15.01
+-191.63
+25,798.39
+
+25,813.40
+
+880.00
+0.00
+224289968
+HKG33
+100
+S
+-15.52
+-198.14
+25,797.88
+
+25,813.40
+
+880.00
+0.00
+224289969
+HKG33
+100
+S
+-16.01
+-204.40
+25,797.39
+
+25,813.40
+
+880.00
+0.00
+224289966
+HKG33
+100
+S
+-15.02
+-191.76
+25,798.38
+
+25,813.40
+
+880.00
+0.00
+224289860
+HKG33
+100
+S
+-50.01
+-638.46
+25,763.39
+
+25,813.40
+
+880.00
+0.00
+224289952
+HKG33
+1
+S
+-18.51
+-2.36
+25,794.89
+
+25,813.40
+
+8.80
+0.00
+224289953
+HKG33
+1
+S
+-19.52
+-2.49
+25,793.88
+
+25,813.40
+
+8.80
+0.00
