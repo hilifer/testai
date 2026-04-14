@@ -1,0 +1,250 @@
+name: Get FXCM Token
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/fix-demo-database-b3FtT]
+    paths:
+      - '.github/workflows/get-fxcm-token.yml'
+
+jobs:
+  get-token:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/fix-demo-database-b3FtT
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Playwright
+        run: |
+          pip install playwright requests
+          playwright install chromium
+          playwright install-deps
+
+      - name: Login to FXCM Trading Station and get token
+        run: |
+          python3 << 'PYEOF'
+          import json, time, requests
+          from playwright.sync_api import sync_playwright
+
+          log = []
+          def p(msg):
+              print(msg)
+              log.append(str(msg))
+
+          USERNAME = "D103538926"
+          PASSWORD = "cqa7U"
+
+          p("=" * 60)
+          p("STEP 1: Open Trading Station Web")
+          p("=" * 60)
+
+          with sync_playwright() as pw:
+              browser = pw.chromium.launch(headless=True)
+              context = browser.new_context(
+                  user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                  viewport={"width": 1920, "height": 1080}
+              )
+              page = context.new_page()
+
+              try:
+                  # Navigate to Trading Station
+                  p("Navigating to tradingstation.fxcm.com...")
+                  page.goto("https://tradingstation.fxcm.com/", timeout=60000)
+                  time.sleep(3)
+                  p(f"Current URL: {page.url}")
+                  p(f"Title: {page.title()}")
+
+                  # Take screenshot
+                  page.screenshot(path="screenshot_1_landing.png")
+                  p("Screenshot 1 saved")
+
+                  # Look for login form
+                  p("\nLooking for login form...")
+                  page.wait_for_load_state("networkidle", timeout=30000)
+
+                  # Try to find login fields
+                  html = page.content()
+
+                  # Look for username/login input
+                  login_selectors = [
+                      'input[name="login"]',
+                      'input[name="username"]',
+                      'input[name="user"]',
+                      'input[name="Login"]',
+                      'input[id="login"]',
+                      'input[id="username"]',
+                      'input[type="text"]',
+                      'input[placeholder*="user" i]',
+                      'input[placeholder*="login" i]',
+                      'input[placeholder*="account" i]',
+                  ]
+
+                  login_input = None
+                  for sel in login_selectors:
+                      try:
+                          el = page.query_selector(sel)
+                          if el and el.is_visible():
+                              login_input = el
+                              p(f"Found login input: {sel}")
+                              break
+                      except:
+                          pass
+
+                  password_selectors = [
+                      'input[name="password"]',
+                      'input[name="passwd"]',
+                      'input[type="password"]',
+                      'input[id="password"]',
+                  ]
+
+                  password_input = None
+                  for sel in password_selectors:
+                      try:
+                          el = page.query_selector(sel)
+                          if el and el.is_visible():
+                              password_input = el
+                              p(f"Found password input: {sel}")
+                              break
+                      except:
+                          pass
+
+                  if login_input and password_input:
+                      p("\n--- Filling login form ---")
+                      login_input.fill(USERNAME)
+                      time.sleep(0.5)
+                      password_input.fill(PASSWORD)
+                      time.sleep(0.5)
+                      page.screenshot(path="screenshot_2_filled.png")
+                      p("Screenshot 2 saved (form filled)")
+
+                      # Find and click submit
+                      submit_selectors = [
+                          'button[type="submit"]',
+                          'input[type="submit"]',
+                          'button:has-text("Login")',
+                          'button:has-text("Sign In")',
+                          'button:has-text("Log In")',
+                          '#loginButton',
+                          '.login-button',
+                          'button.btn-primary',
+                      ]
+
+                      for sel in submit_selectors:
+                          try:
+                              btn = page.query_selector(sel)
+                              if btn and btn.is_visible():
+                                  p(f"Clicking submit: {sel}")
+                                  btn.click()
+                                  break
+                          except:
+                              pass
+
+                      # Wait for navigation
+                      p("Waiting for login response...")
+                      time.sleep(10)
+                      page.wait_for_load_state("networkidle", timeout=30000)
+                      p(f"Current URL after login: {page.url}")
+                      p(f"Title: {page.title()}")
+                      page.screenshot(path="screenshot_3_after_login.png")
+                      p("Screenshot 3 saved (after login)")
+
+                      # Look for Token Management
+                      p("\n--- Looking for Token Management ---")
+                      token_selectors = [
+                          'text=Token',
+                          'text=token',
+                          'text=API',
+                          'a:has-text("Token")',
+                          '[class*="token" i]',
+                          '[class*="account" i]',
+                          'text=User Account',
+                      ]
+
+                      for sel in token_selectors:
+                          try:
+                              el = page.query_selector(sel)
+                              if el and el.is_visible():
+                                  p(f"Found element: {sel} -> {el.text_content()[:100]}")
+                                  el.click()
+                                  time.sleep(3)
+                                  page.screenshot(path="screenshot_4_token_page.png")
+                                  p("Screenshot 4 saved (token page)")
+                                  break
+                          except Exception as e:
+                              pass
+
+                      # Look for any token value on the page
+                      page_text = page.content()
+                      import re
+                      tokens = re.findall(r'[a-f0-9]{30,}', page_text)
+                      if tokens:
+                          p(f"\nPOSSIBLE TOKENS FOUND: {tokens[:5]}")
+
+                      # Also check for token in any visible text
+                      all_text = page.inner_text("body")
+                      p(f"\nPage text (first 2000 chars):\n{all_text[:2000]}")
+
+                  else:
+                      p("Could not find login form!")
+                      p(f"\nPage HTML (first 3000 chars):\n{html[:3000]}")
+
+                      # Maybe it's a SPA, try iframe
+                      frames = page.frames
+                      p(f"\nFrames: {len(frames)}")
+                      for f in frames:
+                          p(f"  Frame: {f.url}")
+
+              except Exception as e:
+                  p(f"\nERROR: {e}")
+                  import traceback
+                  p(traceback.format_exc())
+                  page.screenshot(path="screenshot_error.png")
+
+              finally:
+                  browser.close()
+
+          # Save results
+          with open("fxcm_token_log.txt", "w") as f:
+              f.write("\n".join(log))
+
+          PYEOF
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fxcm-screenshots
+          path: screenshot_*.png
+
+      - name: Push results
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CONTENT=$(base64 -w 0 fxcm_token_log.txt)
+          # Check if file exists
+          SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/fxcm_token_log.txt?ref=claude/fix-demo-database-b3FtT" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
+
+          if [ -n "$SHA" ]; then
+            curl -s -X PUT \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/contents/fxcm_token_log.txt" \
+              -d "{\"message\":\"ci: FXCM token retrieval results\",\"content\":\"$CONTENT\",\"branch\":\"claude/fix-demo-database-b3FtT\",\"sha\":\"$SHA\"}"
+          else
+            curl -s -X PUT \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/contents/fxcm_token_log.txt" \
+              -d "{\"message\":\"ci: FXCM token retrieval results\",\"content\":\"$CONTENT\",\"branch\":\"claude/fix-demo-database-b3FtT\"}"
+          fi
