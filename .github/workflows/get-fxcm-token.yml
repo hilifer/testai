@@ -66,9 +66,31 @@ jobs:
                   page.screenshot(path="screenshot_1_landing.png")
                   p("Screenshot 1 saved")
 
-                  # Look for login form
-                  p("\nLooking for login form...")
-                  page.wait_for_load_state("networkidle", timeout=30000)
+                  # Switch to Demo tab first (account starts with D)
+                  p("\nSwitching to Demo tab...")
+                  demo_selectors = [
+                      'text=Demo',
+                      'button:has-text("Demo")',
+                      'a:has-text("Demo")',
+                      'div:has-text("Demo")',
+                      '[class*="demo" i]',
+                  ]
+                  for sel in demo_selectors:
+                      try:
+                          els = page.query_selector_all(sel)
+                          for el in els:
+                              txt = (el.text_content() or "").strip()
+                              if txt.lower() == "demo":
+                                  p(f"Clicking Demo tab: {sel} -> '{txt}'")
+                                  el.click()
+                                  time.sleep(2)
+                                  break
+                      except:
+                          pass
+
+                  page.screenshot(path="screenshot_1b_demo_tab.png")
+                  p("Screenshot 1b saved (after Demo tab click)")
+                  page.wait_for_load_state("networkidle", timeout=15000)
 
                   # Try to find login fields
                   html = page.content()
@@ -127,10 +149,11 @@ jobs:
 
                       # Find and click submit
                       submit_selectors = [
+                          'button:has-text("Sign in to Demo")',
+                          'button:has-text("Sign in")',
                           'button[type="submit"]',
                           'input[type="submit"]',
                           'button:has-text("Login")',
-                          'button:has-text("Sign In")',
                           'button:has-text("Log In")',
                           '#loginButton',
                           '.login-button',
