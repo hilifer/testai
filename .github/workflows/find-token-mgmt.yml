@@ -1,0 +1,284 @@
+name: FXCM Register + Get Token
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/fix-demo-database-b3FtT]
+    paths:
+      - '.github/workflows/find-token-mgmt.yml'
+
+jobs:
+  register-and-token:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/fix-demo-database-b3FtT
+
+      - name: Install deps
+        run: |
+          pip install playwright requests
+          playwright install chromium
+          playwright install-deps
+
+      - name: Register FXCM demo account with Playwright
+        run: |
+          python3 << 'PYEOF'
+          import json, time, re, random, string, requests as req_lib
+          from playwright.sync_api import sync_playwright
+
+          log = []
+          def p(msg):
+              print(msg)
+              log.append(str(msg))
+
+          # Step 1: Create temp email
+          p("=== STEP 1: CREATE TEMP EMAIL ===")
+          resp = req_lib.get("https://api.mail.tm/domains")
+          domains = resp.json()
+          domain = domains["hydra:member"][0]["domain"] if "hydra:member" in domains else domains[0]["domain"]
+          username = "fxdemo" + "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+          email = f"{username}@{domain}"
+          mail_pass = "Fx" + "".join(random.choices(string.ascii_letters + string.digits, k=12)) + "!1"
+          resp = req_lib.post("https://api.mail.tm/accounts", json={"address": email, "password": mail_pass})
+          p(f"Email: {email} (status: {resp.status_code})")
+          mail_token = ""
+          if resp.status_code in [200, 201]:
+              resp2 = req_lib.post("https://api.mail.tm/token", json={"address": email, "password": mail_pass})
+              mail_token = resp2.json().get("token", "")
+              p("Temp email OK!")
+          else:
+              p(f"Temp email FAILED: {resp.text}")
+
+          # Step 2: Open FXCM registration page with Playwright
+          p("\n=== STEP 2: REGISTER VIA PLAYWRIGHT ===")
+          with sync_playwright() as pw:
+              browser = pw.chromium.launch(headless=True)
+              context = browser.new_context(
+                  user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0",
+                  viewport={"width": 1920, "height": 1080}
+              )
+              page = context.new_page()
+
+              try:
+                  # Try registration pages
+                  reg_urls = [
+                      "https://www.fxcm.com/markets/open-demo/",
+                      "https://www.fxcm.com/uk/forex-trading-demo/",
+                  ]
+                  for url in reg_urls:
+                      p(f"\nTrying: {url}")
+                      page.goto(url, timeout=30000)
+                      time.sleep(5)
+                      try:
+                          page.wait_for_load_state("networkidle", timeout=15000)
+                      except:
+                          pass
+                      p(f"  URL: {page.url}")
+                      p(f"  Title: {page.title()}")
+                      page.screenshot(path="ss_reg_page.png")
+
+                      # Check if we got past Cloudflare
+                      title = page.title()
+                      if "moment" in title.lower() or "checking" in title.lower():
+                          p("  Cloudflare challenge detected, waiting...")
+                          time.sleep(8)
+                          p(f"  Title after wait: {page.title()}")
+                          page.screenshot(path="ss_reg_after_cf.png")
+
+                      body_text = page.inner_text("body")
+                      p(f"  Page text (first 500): {body_text[:500]}")
+
+                      # Look for registration form
+                      inputs = page.query_selector_all("input")
+                      p(f"  Found {len(inputs)} input elements")
+                      for inp in inputs:
+                          try:
+                              name = inp.get_attribute("name") or ""
+                              typ = inp.get_attribute("type") or ""
+                              ph = inp.get_attribute("placeholder") or ""
+                              if inp.is_visible():
+                                  p(f"    input name='{name}' type='{typ}' placeholder='{ph}'")
+                          except:
+                              pass
+
+                      # If form found, fill it
+                      if len(inputs) > 2:
+                          p("\n  --- Filling registration form ---")
+                          # Common field mappings
+                          fill_map = {
+                              "firstName": "Test",
+                              "first_name": "Test",
+                              "first-name": "Test",
+                              "fname": "Test",
+                              "lastName": "Developer",
+                              "last_name": "Developer",
+                              "last-name": "Developer",
+                              "lname": "Developer",
+                              "email": email,
+                              "Email": email,
+                              "phone": "2025551234",
+                              "Phone": "2025551234",
+                              "phoneNumber": "2025551234",
+                              "mobile": "2025551234",
+                          }
+                          for inp in inputs:
+                              try:
+                                  name = inp.get_attribute("name") or ""
+                                  if name in fill_map and inp.is_visible():
+                                      inp.fill(fill_map[name])
+                                      p(f"    Filled {name}={fill_map[name]}")
+                              except:
+                                  pass
+
+                          # Handle select dropdowns (country etc)
+                          selects = page.query_selector_all("select")
+                          for sel in selects:
+                              try:
+                                  name = sel.get_attribute("name") or ""
+                                  if sel.is_visible():
+                                      p(f"    Select: {name}")
+                                      sel.select_option(index=1)
+                              except:
+                                  pass
+
+                          # Handle checkboxes
+                          checks = page.query_selector_all('input[type="checkbox"]')
+                          for chk in checks:
+                              try:
+                                  if chk.is_visible() and not chk.is_checked():
+                                      chk.check()
+                                      p(f"    Checked: {chk.get_attribute('name')}")
+                              except:
+                                  pass
+
+                          page.screenshot(path="ss_reg_filled.png")
+
+                          # Submit
+                          submit = page.query_selector('button[type="submit"]') or page.query_selector('input[type="submit"]') or page.query_selector('button:has-text("Submit")') or page.query_selector('button:has-text("Open")') or page.query_selector('button:has-text("Register")')
+                          if submit:
+                              p(f"    Clicking submit: {submit.text_content()[:40]}")
+                              submit.click()
+                              time.sleep(8)
+                              page.screenshot(path="ss_reg_submitted.png")
+                              p(f"    After submit URL: {page.url}")
+                              p(f"    After submit text: {page.inner_text('body')[:1000]}")
+                          break
+
+                  # Step 3: Check email
+                  p("\n=== STEP 3: CHECK EMAIL ===")
+                  if mail_token:
+                      headers = {"Authorization": f"Bearer {mail_token}"}
+                      for i in range(12):
+                          resp = req_lib.get("https://api.mail.tm/messages", headers=headers)
+                          msgs = resp.json().get("hydra:member", [])
+                          p(f"  Check {i+1}: {len(msgs)} messages")
+                          for msg in msgs:
+                              p(f"    From: {msg.get('from',{}).get('address')}")
+                              p(f"    Subject: {msg.get('subject')}")
+                              full = req_lib.get(f"https://api.mail.tm/messages/{msg['id']}", headers=headers).json()
+                              body_text = full.get("text", "")
+                              p(f"    Body: {body_text[:500]}")
+                              # Look for verification link
+                              links = re.findall(r'https?://[^\s<>"]+', body_text)
+                              p(f"    Links: {links[:5]}")
+                              for link in links:
+                                  if "verify" in link.lower() or "confirm" in link.lower() or "activate" in link.lower():
+                                      p(f"    *** VERIFICATION LINK: {link} ***")
+                                      page.goto(link, timeout=15000)
+                                      time.sleep(5)
+                                      p(f"    After verify: {page.url}")
+                                      p(f"    Text: {page.inner_text('body')[:500]}")
+                          if msgs:
+                              break
+                          time.sleep(5)
+
+                  # Step 4: Also try existing account - login and find token
+                  p("\n=== STEP 4: LOGIN EXISTING ACCOUNT & FIND TOKEN ===")
+                  page.goto("https://tradingstation.fxcm.com/", timeout=60000)
+                  time.sleep(3)
+                  page.wait_for_load_state("networkidle", timeout=30000)
+                  demo = page.query_selector('text=Demo')
+                  if demo: demo.click(); time.sleep(1)
+                  page.fill('input[name="username"]', "D103538926")
+                  page.fill('input[name="password"]', "cqa7U")
+                  page.click('button:has-text("Sign in")')
+                  time.sleep(12)
+                  try:
+                      page.wait_for_load_state("networkidle", timeout=20000)
+                  except:
+                      pass
+
+                  body = page.inner_text("body")
+                  p(f"Login: {'OK' if 'EQUITY' in body else 'FAILED'}")
+                  page.screenshot(path="ss_login_main.png")
+
+                  # Click everywhere in top-right corner to find Token Management
+                  p("\n--- Scanning top-right for Token Management ---")
+                  for x in range(1900, 1500, -50):
+                      for y in [15, 30, 45, 60]:
+                          page.mouse.click(x, y)
+                          time.sleep(0.5)
+                          new_text = page.inner_text("body")
+                          if "token" in new_text.lower():
+                              p(f"*** TOKEN found at ({x},{y})! ***")
+                              p(new_text[:2000])
+                              page.screenshot(path=f"ss_token_{x}_{y}.png")
+
+                  # Try right-click context menu
+                  p("\n--- Right-click on account number ---")
+                  acct = page.query_selector('text=03528078')
+                  if acct:
+                      acct.click(button="right")
+                      time.sleep(1)
+                      p(f"Right-click text: {page.inner_text('body')[:500]}")
+                      page.screenshot(path="ss_rightclick.png")
+
+                  # Dump final full HTML for analysis
+                  p("\n--- FULL HTML DUMP (for analysis) ---")
+                  final_html = page.content()
+                  # Find all anchor/button elements
+                  all_links = re.findall(r'<(?:a|button)[^>]*>([^<]*)</(?:a|button)>', final_html)
+                  p(f"All links/buttons text: {[l.strip() for l in all_links if l.strip()]}")
+
+              except Exception as e:
+                  p(f"ERROR: {e}")
+                  import traceback
+                  p(traceback.format_exc())
+              finally:
+                  browser.close()
+
+          with open("fxcm_scan_log.txt", "w") as f:
+              f.write("\n".join(log))
+          PYEOF
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fxcm-scan
+          path: |
+            ss_*.png
+            fxcm_scan_log.txt
+
+      - name: Push log
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CONTENT=$(base64 -w 0 fxcm_scan_log.txt)
+          SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/fxcm_scan_log.txt?ref=claude/fix-demo-database-b3FtT" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
+          if [ -n "$SHA" ]; then
+            curl -s -X PUT -H "Authorization: token $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/contents/fxcm_scan_log.txt" \
+              -d "{\"message\":\"ci: FXCM scan\",\"content\":\"$CONTENT\",\"branch\":\"claude/fix-demo-database-b3FtT\",\"sha\":\"$SHA\"}"
+          else
+            curl -s -X PUT -H "Authorization: token $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/contents/fxcm_scan_log.txt" \
+              -d "{\"message\":\"ci: FXCM scan\",\"content\":\"$CONTENT\",\"branch\":\"claude/fix-demo-database-b3FtT\"}"
+          fi
